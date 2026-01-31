@@ -267,8 +267,11 @@ start_services() {
     fi
 
     if [ "$rebuild" = "true" ]; then
+        info "本地构建模式..."
         $compose_cmd up -d --build
     else
+        info "拉取预构建镜像..."
+        $compose_cmd pull app 2>/dev/null || warn "无法拉取镜像，将使用本地构建"
         $compose_cmd up -d
     fi
 

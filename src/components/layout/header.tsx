@@ -229,7 +229,7 @@ export function Header({
           <Activity className="h-5 w-5 text-primary" />
           <span className="font-semibold hidden sm:inline">NewAPI 监控</span>
           <a
-            href="https://github.com/chxcodepro/newapi-check"
+            href="https://github.com/chxcodepro/newapi-model-check"
             target="_blank"
             rel="noopener noreferrer"
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors hidden sm:block"

@@ -144,7 +144,7 @@ export default function Home() {
       <footer className="border-t border-border py-4">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
           <a
-            href="https://github.com/chxcodepro/newapi-check"
+            href="https://github.com/chxcodepro/newapi-model-check"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-foreground transition-colors"
