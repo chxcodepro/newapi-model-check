@@ -148,13 +148,40 @@ detect_docker_postgres() {
             local postgres_network=$(docker inspect -f '{{range $key, $val := .NetworkSettings.Networks}}{{$key}}{{end}}' "$container_name" 2>/dev/null | head -n 1)
 
             if [ -n "$postgres_network" ]; then
-                # 注意：这里只记录容器信息，实际连接字符串需要用户确认密码
                 EXTERNAL_POSTGRES_CONTAINER="$container_name"
                 EXTERNAL_POSTGRES_NETWORK="$postgres_network"
-                warn "检测到 PostgreSQL 容器: $container_name"
-                warn "若要复用，请手动配置 DOCKER_DATABASE_URL 连接字符串"
+
+                # 尝试从容器环境变量获取连接信息
+                local pg_user=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container_name" 2>/dev/null | grep -E '^POSTGRES_USER=' | cut -d= -f2 || true)
+                local pg_password=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container_name" 2>/dev/null | grep -E '^POSTGRES_PASSWORD=' | cut -d= -f2 || true)
+                local pg_db=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container_name" 2>/dev/null | grep -E '^POSTGRES_DB=' | cut -d= -f2 || true)
+
+                # 使用默认值
+                pg_user=${pg_user:-postgres}
+                pg_db=${pg_db:-postgres}
+
+                if [ -n "$pg_password" ]; then
+                    # 自动构建连接字符串
+                    local auto_url="postgresql://${pg_user}:${pg_password}@${container_name}:5432/${pg_db}"
+                    success "自动识别 PostgreSQL 连接信息"
+                    info "  用户: $pg_user, 数据库: $pg_db"
+
+                    # 验证连接
+                    if docker exec "$container_name" psql -U "$pg_user" -d "$pg_db" -c "SELECT 1" &>/dev/null; then
+                        DETECTED_POSTGRES_URL="$auto_url"
+                        USE_EXTERNAL_POSTGRES=true
+                        success "可复用 PostgreSQL 容器: $container_name (网络: $postgres_network)"
+                        return 0
+                    else
+                        warn "连接验证失败，可能需要手动配置"
+                    fi
+                else
+                    warn "无法获取 PostgreSQL 密码，需要手动输入"
+                fi
+
+                # 如果自动识别失败，回退到手动输入
                 echo ""
-                read -p "是否复用此 PostgreSQL? 需要输入连接信息 (y/N): " reuse_pg
+                read -p "是否手动输入连接信息? (y/N): " reuse_pg
                 if [[ "$reuse_pg" =~ ^[Yy]$ ]]; then
                     echo "请输入 PostgreSQL 连接字符串"
                     echo "格式: postgresql://用户名:密码@${container_name}:5432/数据库名"
