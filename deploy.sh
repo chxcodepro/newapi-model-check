@@ -37,6 +37,9 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 # 全局变量：存储检测到的服务信息
 DETECTED_REDIS_URL=""
 DETECTED_POSTGRES_URL=""
+DETECTED_POSTGRES_CONTAINER=""  # 检测到的外部 PostgreSQL 容器名
+DETECTED_POSTGRES_USER=""       # 检测到的外部 PostgreSQL 用户名
+DETECTED_POSTGRES_DB=""         # 检测到的外部 PostgreSQL 数据库名
 USE_EXTERNAL_REDIS=false
 USE_EXTERNAL_POSTGRES=false
 REDIS_PORT_TO_USE=6379
@@ -261,6 +264,9 @@ detect_docker_postgres() {
                             success "可复用 PostgreSQL: ${container_name}:5432 (网络: $postgres_network)"
                         fi
                         USE_EXTERNAL_POSTGRES=true
+                        DETECTED_POSTGRES_CONTAINER="$container_name"
+                        DETECTED_POSTGRES_USER="$pg_user"
+                        DETECTED_POSTGRES_DB="$pg_db"
                         return 0
                     else
                         info "跳过复用，将启动新的 PostgreSQL 容器"
@@ -290,6 +296,9 @@ detect_docker_postgres() {
                 if [ -n "$pg_url" ]; then
                     DETECTED_POSTGRES_URL="$pg_url"
                     USE_EXTERNAL_POSTGRES=true
+                    DETECTED_POSTGRES_CONTAINER="$container_name"
+                    DETECTED_POSTGRES_USER="$pg_user"
+                    DETECTED_POSTGRES_DB="$pg_db"
                     # 如果没有端口映射，添加外部网络
                     if [ -z "$host_port" ]; then
                         local postgres_network=$(docker inspect -f '{{range $key, $val := .NetworkSettings.Networks}}{{$key}}{{end}}' "$container_name" 2>/dev/null | head -n 1)
@@ -689,7 +698,7 @@ init_database() {
         compose_cmd="docker-compose"
     fi
 
-    # 检查是否有本地 PostgreSQL 容器
+    # 情况1: 使用本项目的 PostgreSQL 容器
     if docker ps --format '{{.Names}}' | grep -q "newapi-postgres"; then
         info "等待数据库就绪..."
         local max_attempts=30
@@ -715,9 +724,44 @@ init_database() {
         else
             error "数据库初始化失败"
         fi
+
+    # 情况2: 复用外部 Docker PostgreSQL 容器
+    elif [ "$USE_EXTERNAL_POSTGRES" = true ] && [ -n "$DETECTED_POSTGRES_CONTAINER" ]; then
+        info "使用外部 PostgreSQL 容器: $DETECTED_POSTGRES_CONTAINER"
+
+        # 等待数据库就绪
+        local max_attempts=30
+        local attempt=0
+        local pg_user=${DETECTED_POSTGRES_USER:-postgres}
+        local pg_db=${DETECTED_POSTGRES_DB:-postgres}
+
+        info "等待数据库就绪..."
+        while [ $attempt -lt $max_attempts ]; do
+            if docker exec "$DETECTED_POSTGRES_CONTAINER" pg_isready -U "$pg_user" -d "$pg_db" &>/dev/null; then
+                break
+            fi
+            attempt=$((attempt + 1))
+            echo -n "."
+            sleep 2
+        done
+        echo ""
+
+        if [ $attempt -eq $max_attempts ]; then
+            warn "等待数据库超时，尝试继续..."
+        fi
+
+        # 使用项目自带的 SQL 脚本初始化数据库
+        info "创建数据库表..."
+        if cat prisma/init.postgresql.sql | docker exec -i "$DETECTED_POSTGRES_CONTAINER" psql -U "$pg_user" -d "$pg_db"; then
+            success "数据库初始化完成"
+        else
+            warn "数据库初始化失败，可能表已存在（可忽略）"
+        fi
+
+    # 情况3: 云数据库或其他外部数据库（无法自动初始化）
     else
-        # 云数据库模式，跳过自动初始化
-        warn "未检测到本地 PostgreSQL 容器，请手动执行 prisma/init.postgresql.sql"
+        warn "未检测到可自动初始化的 PostgreSQL 容器"
+        info "请手动执行数据库初始化: psql < prisma/init.postgresql.sql"
     fi
 }
 
