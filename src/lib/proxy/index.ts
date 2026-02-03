@@ -48,6 +48,7 @@ export function verifyProxyKey(request: NextRequest): NextResponse | null {
 
 /**
  * Find channel by model name
+ * Supports both "modelName" and "channelName/modelName" formats
  * Returns the channel that contains the specified model
  */
 export async function findChannelByModel(modelName: string): Promise<{
@@ -56,9 +57,23 @@ export async function findChannelByModel(modelName: string): Promise<{
   baseUrl: string;
   apiKey: string;
   proxy: string | null;
+  actualModelName: string;
 } | null> {
+  // Parse channel prefix if present (e.g., "渠道名/模型名" -> channelName="渠道名", actualModel="模型名")
+  let channelNameFilter: string | undefined;
+  let actualModelName = modelName;
+
+  const slashIndex = modelName.indexOf("/");
+  if (slashIndex > 0) {
+    channelNameFilter = modelName.slice(0, slashIndex);
+    actualModelName = modelName.slice(slashIndex + 1);
+  }
+
   const model = await prisma.model.findFirst({
-    where: { modelName },
+    where: {
+      modelName: actualModelName,
+      ...(channelNameFilter && { channel: { name: channelNameFilter } }),
+    },
     include: {
       channel: {
         select: {
@@ -83,6 +98,7 @@ export async function findChannelByModel(modelName: string): Promise<{
     baseUrl: model.channel.baseUrl.replace(/\/$/, ""),
     apiKey: model.channel.apiKey,
     proxy: model.channel.proxy,
+    actualModelName,
   };
 }
 
@@ -201,7 +217,11 @@ export async function proxyRequest(
 }
 
 /**
- * Stream response from upstream SSE endpoint
+ * Stream response from upstream endpoint
+ * Supports:
+ * - OpenAI/Anthropic SSE format (text/event-stream)
+ * - Gemini JSON array streaming (application/json)
+ * - OpenAI Responses API SSE format (event: + data:)
  */
 export function streamResponse(upstream: Response): Response {
   const reader = upstream.body?.getReader();
@@ -231,12 +251,21 @@ export function streamResponse(upstream: Response): Response {
     },
   });
 
+  // Preserve the upstream Content-Type - important for different streaming formats:
+  // - text/event-stream: OpenAI Chat Completions, Anthropic Messages, OpenAI Responses API
+  // - application/json: Gemini streamGenerateContent
+  const contentType = upstream.headers.get("Content-Type");
+
   return new Response(stream, {
     status: upstream.status,
     headers: {
-      "Content-Type": upstream.headers.get("Content-Type") || "text/event-stream",
+      "Content-Type": contentType || "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      // Preserve transfer encoding for proper chunked streaming
+      ...(upstream.headers.get("Transfer-Encoding") && {
+        "Transfer-Encoding": upstream.headers.get("Transfer-Encoding")!,
+      }),
     },
   });
 }

@@ -86,6 +86,21 @@ async function ensureParentDirectories(fileUrl: string, headers: HeadersInit): P
   }
 }
 
+// GET /api/channel/webdav - Get WebDAV config status
+export async function GET(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
+  // Return config status (masked for security)
+  return NextResponse.json({
+    configured: !!(ENV_WEBDAV_URL && ENV_WEBDAV_USERNAME && ENV_WEBDAV_PASSWORD),
+    url: ENV_WEBDAV_URL || "",
+    username: ENV_WEBDAV_USERNAME || "",
+    hasPassword: !!ENV_WEBDAV_PASSWORD,
+    filename: ENV_WEBDAV_FILENAME || "newapi-channels.json",
+  });
+}
+
 // POST /api/channel/webdav - Sync with WebDAV
 export async function POST(request: NextRequest) {
   const authError = requireAuth(request);

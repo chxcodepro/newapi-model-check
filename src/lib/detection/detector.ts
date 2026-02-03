@@ -111,24 +111,54 @@ function extractResponseContent(
         break;
       }
       case "GEMINI": {
-        // Gemini format: response.candidates[0].content.parts[0].text
+        // Gemini format: response.candidates[0].content.parts[].text
+        // Newer models (2024+) may include thinking field in parts
         const candidates = body.candidates as {
-          content?: { parts?: { text?: string }[] };
+          content?: { parts?: { text?: string; thought?: boolean }[] };
         }[] | undefined;
-        const text = candidates?.[0]?.content?.parts?.[0]?.text;
-        if (typeof text === "string") {
-          return text.slice(0, 500);
+        const parts = candidates?.[0]?.content?.parts;
+        if (Array.isArray(parts)) {
+          // Find the first non-thought text part
+          const textPart = parts.find(
+            (p) => typeof p.text === "string" && p.text.length > 0 && !p.thought
+          );
+          if (textPart?.text) {
+            return textPart.text.slice(0, 500);
+          }
+          // Fallback: return first text part regardless of thought flag
+          const fallbackPart = parts.find((p) => typeof p.text === "string" && p.text.length > 0);
+          if (fallbackPart?.text) {
+            return fallbackPart.text.slice(0, 500);
+          }
         }
         break;
       }
       case "CODEX": {
-        // Codex format: response.output[0].content[0].text
+        // Codex/Responses API format (2025):
+        // response.output[].content[].text where type is "output_text"
+        // or response.output[].text for simple text output
         const output = body.output as {
-          content?: { text?: string }[];
+          type?: string;
+          content?: { type?: string; text?: string }[];
+          text?: string;
         }[] | undefined;
-        const text = output?.[0]?.content?.[0]?.text;
-        if (typeof text === "string") {
-          return text.slice(0, 500);
+
+        if (Array.isArray(output)) {
+          for (const item of output) {
+            // Type "message" with content array
+            if (Array.isArray(item.content)) {
+              const textContent = item.content.find(
+                (c) => c.type === "output_text" && typeof c.text === "string"
+              );
+              if (textContent?.text) {
+                return textContent.text.slice(0, 500);
+              }
+            }
+            // Simple text field on output item
+            if (typeof item.text === "string" && item.text.length > 0) {
+              return item.text.slice(0, 500);
+            }
+          }
         }
         break;
       }
@@ -285,14 +315,14 @@ export async function fetchModels(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), DETECTION_TIMEOUT);
 
-    const response = await fetch(url, {
+    const response = await proxyFetch(url, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       signal: controller.signal,
-    });
+    }, effectiveProxy);
 
     clearTimeout(timeoutId);
 

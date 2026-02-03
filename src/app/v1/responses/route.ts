@@ -1,4 +1,6 @@
-// POST /v1/responses - Proxy OpenAI Responses API (Codex)
+// POST /v1/responses - Proxy OpenAI Responses API (2025)
+// Supports both streaming and non-streaming responses
+// Streaming uses SSE with event types: response.created, response.output_text.delta, response.completed
 // Automatically routes to the correct channel based on model name
 
 import { NextRequest, NextResponse } from "next/server";
@@ -26,21 +28,25 @@ export async function POST(request: NextRequest) {
       return errorResponse("Missing 'model' field in request body", 400);
     }
 
-    // Find channel by model name
+    // Find channel by model name (supports "channelName/modelName" format)
     const channel = await findChannelByModel(modelName);
     if (!channel) {
       return errorResponse(`Model not found: ${modelName}`, 404);
     }
 
+    // Use actual model name (without channel prefix) for upstream request
+    const upstreamBody = { ...body, model: channel.actualModelName };
+
+    // Responses API supports streaming via 'stream' boolean
     const isStream = body.stream === true;
     const baseUrl = normalizeBaseUrl(channel.baseUrl);
     const url = `${baseUrl}/v1/responses`;
     const headers = buildUpstreamHeaders(channel.apiKey, "openai");
 
-    console.log(`[Proxy] Codex request for model "${modelName}" -> channel "${channel.channelName}"`);
+    console.log(`[Proxy] Responses API request for model "${modelName}" -> channel "${channel.channelName}" (upstream model: "${channel.actualModelName}", stream: ${isStream})`);
 
     // Forward request to upstream (with channel proxy support)
-    const response = await proxyRequest(url, "POST", headers, body, channel.proxy);
+    const response = await proxyRequest(url, "POST", headers, upstreamBody, channel.proxy);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unknown error");
@@ -50,7 +56,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Handle streaming response
+    // Handle streaming response (SSE format with event: + data: lines)
     if (isStream) {
       return streamResponse(response);
     }

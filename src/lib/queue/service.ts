@@ -294,9 +294,9 @@ export async function getDetectionProgress() {
     ...stats,
     isRunning: stats.active > 0 || stats.waiting > 0,
     progress:
-      stats.total > 0
+      stats.total > 0 || stats.completed > 0 || stats.failed > 0
         ? Math.round(((stats.completed + stats.failed) / (stats.total + stats.completed + stats.failed)) * 100)
-        : 100,
+        : 0,
     testingModelIds,
   };
 }

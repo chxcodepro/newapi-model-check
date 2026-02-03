@@ -22,9 +22,15 @@ export function detectCliEndpointType(modelName: string): EndpointType | null {
     return EndpointType.GEMINI;
   }
 
-  // OpenAI responses API: only gpt-5.1, gpt-5.2 and their variants
-  // e.g., gpt-5.1, gpt-5.1-turbo, gpt-5.2, gpt-5.2-preview
-  if (/gpt-5\.[12]/.test(name)) {
+  // OpenAI Responses API (2025+):
+  // - gpt-4o series (gpt-4o, gpt-4o-mini, etc.)
+  // - gpt-5 series (gpt-5, gpt-5.1, gpt-5.2, etc.)
+  // - o1, o3, o4 reasoning models
+  if (
+    /gpt-4o/.test(name) ||
+    /gpt-5/.test(name) ||
+    /^o[134](-|$)/.test(name)
+  ) {
     return EndpointType.CODEX;
   }
 
@@ -149,6 +155,8 @@ function buildGeminiEndpoint(
 
 /**
  * Build Codex /v1/responses endpoint
+ * Uses OpenAI Responses API format (2025)
+ * @see https://platform.openai.com/docs/api-reference/responses
  */
 function buildCodexEndpoint(
   baseUrl: string,
@@ -164,7 +172,19 @@ function buildCodexEndpoint(
     },
     requestBody: {
       model: modelName,
-      input: DETECT_PROMPT,
+      stream: false,
+      // Responses API input format: array of message objects
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: DETECT_PROMPT,
+            },
+          ],
+        },
+      ],
     },
   };
 }

@@ -169,20 +169,9 @@ export function ChannelCard({ channel, onRefresh, className, onEndpointFilterCha
   // Calculate health counts by endpoint category
   const endpointHealth = getEndpointHealthCounts(channel.models);
 
-  // Build health summary text for collapsed view
-  const healthSummary = (() => {
-    const parts: string[] = [];
-    if (endpointHealth.chat.total > 0) {
-      parts.push(`Chat: ${endpointHealth.chat.healthy}/${endpointHealth.chat.total}`);
-    }
-    if (endpointHealth.cli.total > 0) {
-      parts.push(`CLI: ${endpointHealth.cli.healthy}/${endpointHealth.cli.total}`);
-    }
-    if (parts.length === 0) {
-      return `${totalCount} 个模型`;
-    }
-    return parts.join(" | ");
-  })();
+  // Build health summary text for collapsed view - only show total models count
+  // Endpoint details are already shown in the colored badges on the right
+  const healthSummary = `${totalCount} 个模型`;
 
   // Calculate channel status based on new logic
   const channelStatus = (() => {
@@ -352,24 +341,42 @@ export function ChannelCard({ channel, onRefresh, className, onEndpointFilterCha
           </div>
 
           <div className="flex items-center gap-4 shrink-0">
-            {/* Endpoint counts - clickable filters */}
+            {/* Endpoint counts - clickable filters with colored badges */}
             <div className="hidden sm:flex items-center gap-2 text-xs">
               {Object.entries(endpointCounts).map(([type, count]) => {
-                const { label, type: epType } = formatEndpointType(type);
+                const { label } = formatEndpointType(type);
                 const isActive = currentFilter === type;
+
+                // Different color schemes for each endpoint type
+                const colorSchemes: Record<string, { active: string; inactive: string }> = {
+                  CHAT: {
+                    active: "bg-blue-500 text-white shadow-md ring-2 ring-blue-300",
+                    inactive: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-200 dark:hover:bg-blue-800/50",
+                  },
+                  CLAUDE: {
+                    active: "bg-orange-500 text-white shadow-md ring-2 ring-orange-300",
+                    inactive: "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 hover:bg-orange-200 dark:hover:bg-orange-800/50",
+                  },
+                  GEMINI: {
+                    active: "bg-cyan-500 text-white shadow-md ring-2 ring-cyan-300",
+                    inactive: "bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-700 hover:bg-cyan-200 dark:hover:bg-cyan-800/50",
+                  },
+                  CODEX: {
+                    active: "bg-violet-500 text-white shadow-md ring-2 ring-violet-300",
+                    inactive: "bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-700 hover:bg-violet-200 dark:hover:bg-violet-800/50",
+                  },
+                };
+
+                const scheme = colorSchemes[type] || colorSchemes.CHAT;
+                const colorClass = isActive ? scheme.active : scheme.inactive;
+
                 return (
                   <button
                     key={type}
                     onClick={(e) => handleEndpointClick(type, e)}
                     className={cn(
-                      "px-2 py-1 rounded transition-all cursor-pointer hover:scale-105",
-                      isActive
-                        ? epType === "chat"
-                          ? "bg-blue-500 text-white shadow-md ring-2 ring-blue-300"
-                          : "bg-purple-500 text-white shadow-md ring-2 ring-purple-300"
-                        : epType === "chat"
-                          ? "bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
-                          : "bg-purple-500/10 text-purple-500 hover:bg-purple-500/20"
+                      "px-2.5 py-1 rounded-md font-medium transition-all cursor-pointer hover:scale-105",
+                      colorClass
                     )}
                   >
                     {label}: {count}

@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, useCallback, FormEvent } from "react";
 import {
   Plus,
   Pencil,
@@ -84,27 +84,84 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   // WebDAV sync state
   const [showWebDAVModal, setShowWebDAVModal] = useState(false);
   const [webdavSyncing, setWebdavSyncing] = useState(false);
-  const [webdavConfig, setWebdavConfig] = useState(() => {
-    // Load from localStorage on init
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("webdav-config");
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          // ignore parse errors
-        }
-      }
-    }
-    return {
-      url: "",
-      username: "",
-      password: "",
-      filename: "newapi-channels.json",
-    };
+  const [webdavConfig, setWebdavConfig] = useState({
+    url: "",
+    username: "",
+    password: "",
+    filename: "newapi-channels.json",
   });
+  const [webdavEnvConfigured, setWebdavEnvConfigured] = useState(false);
   const [webdavMode, setWebdavMode] = useState<"merge" | "replace">("merge");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Handle ESC key to close modals
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (showModal) setShowModal(false);
+        if (showImportModal) setShowImportModal(false);
+        if (showWebDAVModal) setShowWebDAVModal(false);
+      }
+    };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [showModal, showImportModal, showWebDAVModal]);
+
+  // Load WebDAV config from localStorage and API
+  useEffect(() => {
+    const loadWebdavConfig = async () => {
+      // First load from localStorage
+      let config = {
+        url: "",
+        username: "",
+        password: "",
+        filename: "newapi-channels.json",
+      };
+
+      if (typeof window !== "undefined") {
+        const saved = localStorage.getItem("webdav-config");
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            config = { ...config, ...parsed };
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+
+      // Then try to get env config from API
+      if (token) {
+        try {
+          const response = await fetch("/api/channel/webdav", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (response.ok) {
+            const envConfig = await response.json();
+            setWebdavEnvConfigured(envConfig.configured);
+
+            // Use env config as default if localStorage is empty
+            if (!config.url && envConfig.url) {
+              config.url = envConfig.url;
+            }
+            if (!config.username && envConfig.username) {
+              config.username = envConfig.username;
+            }
+            if (!config.filename && envConfig.filename) {
+              config.filename = envConfig.filename;
+            }
+            // Don't load password from env for security, but show hint
+          }
+        } catch {
+          // ignore API errors
+        }
+      }
+
+      setWebdavConfig(config);
+    };
+
+    loadWebdavConfig();
+  }, [token]);
 
   const headers = {
     "Content-Type": "application/json",
@@ -112,11 +169,16 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   };
 
   // Fetch channels
-  const fetchChannels = async () => {
+  const fetchChannels = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/channel", { headers });
+      const response = await fetch("/api/channel", {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
       if (!response.ok) throw new Error("获取渠道列表失败");
       const data = await response.json();
       setChannels(data.channels || []);
@@ -125,13 +187,13 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     if (isExpanded && token) {
       fetchChannels();
     }
-  }, [isExpanded, token]);
+  }, [isExpanded, token, fetchChannels]);
 
   // Open add modal
   const handleAdd = () => {
@@ -575,20 +637,27 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="channel-modal-title"
+        >
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setShowModal(false)}
+            aria-hidden="true"
           />
           <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
             {/* Modal header */}
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="text-lg font-semibold">
+              <h2 id="channel-modal-title" className="text-lg font-semibold">
                 {editingChannel ? "编辑渠道" : "添加渠道"}
               </h2>
               <button
                 onClick={() => setShowModal(false)}
                 className="p-1 rounded-md hover:bg-accent transition-colors"
+                aria-label="关闭"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -700,17 +769,24 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
 
       {/* Import Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="import-modal-title"
+        >
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setShowImportModal(false)}
+            aria-hidden="true"
           />
           <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="text-lg font-semibold">导入渠道</h2>
+              <h2 id="import-modal-title" className="text-lg font-semibold">导入渠道</h2>
               <button
                 onClick={() => setShowImportModal(false)}
                 className="p-1 rounded-md hover:bg-accent transition-colors"
+                aria-label="关闭"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -784,23 +860,37 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
 
       {/* WebDAV Modal */}
       {showWebDAVModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="webdav-modal-title"
+        >
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setShowWebDAVModal(false)}
+            aria-hidden="true"
           />
           <div className="relative w-full max-w-lg mx-4 bg-card rounded-lg shadow-lg border border-border max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="text-lg font-semibold">WebDAV 同步</h2>
+              <h2 id="webdav-modal-title" className="text-lg font-semibold">WebDAV 同步</h2>
               <button
                 onClick={() => setShowWebDAVModal(false)}
                 className="p-1 rounded-md hover:bg-accent transition-colors"
+                aria-label="关闭"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <div className="p-4 space-y-4">
+              {/* Env config hint */}
+              {webdavEnvConfigured && (
+                <div className="p-3 rounded-md bg-green-500/10 border border-green-500/20 text-sm text-green-600 dark:text-green-400">
+                  已从环境变量加载 WebDAV 配置。密码留空将使用环境变量中的密码。
+                </div>
+              )}
+
               {/* WebDAV URL */}
               <div>
                 <label className="block text-sm font-medium mb-1">
@@ -835,7 +925,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                   value={webdavConfig.password}
                   onChange={(e) => setWebdavConfig({ ...webdavConfig, password: e.target.value })}
                   className="w-full px-3 py-2 rounded-md border border-input bg-background"
-                  placeholder="可选"
+                  placeholder={webdavEnvConfigured ? "留空使用环境变量密码" : "可选"}
                 />
               </div>
 

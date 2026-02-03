@@ -3,17 +3,50 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Copy, Check, ArrowLeft } from "lucide-react";
+import { Copy, Check, ArrowLeft, Key, Loader2, Lock } from "lucide-react";
 import Link from "next/link";
+import { useAuth } from "@/components/providers/auth-provider";
 
 export default function ProxyDocsPage() {
   const [baseUrl, setBaseUrl] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [proxyKey, setProxyKey] = useState<string | null>(null);
+  const [proxyKeySource, setProxyKeySource] = useState<string | null>(null);
+  const [proxyKeyLoading, setProxyKeyLoading] = useState(false);
+  const [proxyKeyError, setProxyKeyError] = useState<string | null>(null);
+  const { token, isAuthenticated } = useAuth();
 
   useEffect(() => {
     // Get current origin for examples
     setBaseUrl(window.location.origin);
   }, []);
+
+  // Fetch proxy key when authenticated
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      setProxyKeyLoading(true);
+      setProxyKeyError(null);
+      fetch("/api/proxy-key", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to fetch proxy key");
+          return res.json();
+        })
+        .then((data) => {
+          setProxyKey(data.key);
+          setProxyKeySource(data.source);
+        })
+        .catch((err) => {
+          setProxyKeyError(err.message);
+        })
+        .finally(() => {
+          setProxyKeyLoading(false);
+        });
+    }
+  }, [isAuthenticated, token]);
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -39,6 +72,30 @@ export default function ProxyDocsPage() {
       </button>
     </div>
   );
+
+  // Show login required page if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto px-4">
+          <div className="mb-6 p-4 bg-muted rounded-full inline-block">
+            <Lock className="h-12 w-12 text-muted-foreground" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">需要登录</h1>
+          <p className="text-muted-foreground mb-6">
+            API 代理文档仅对管理员开放，请先登录管理面板。
+          </p>
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            返回登录
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -76,6 +133,53 @@ export default function ProxyDocsPage() {
         <section className="mb-8">
           <h2 className="text-xl font-semibold mb-4">Base URL</h2>
           <CodeBlock code={baseUrl || "https://your-domain.com"} id="baseurl" />
+        </section>
+
+        {/* Proxy Key - Prominent position */}
+        <section className="mb-8">
+          <h2 className="text-xl font-semibold mb-4">代理密钥</h2>
+          <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Key className="h-5 w-5 text-blue-500" />
+              <span className="font-medium">当前代理密钥</span>
+            </div>
+            {proxyKeyLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                加载中...
+              </div>
+            ) : proxyKeyError ? (
+              <p className="text-sm text-red-500">
+                获取密钥失败: {proxyKeyError}
+              </p>
+            ) : proxyKey ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <code className="bg-background px-4 py-2 rounded-lg text-sm font-mono flex-1 overflow-x-auto border border-border">
+                    {proxyKey}
+                  </code>
+                  <button
+                    onClick={() => copyToClipboard(proxyKey, "proxy-key-top")}
+                    className="p-2 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                    title="复制密钥"
+                  >
+                    {copied === "proxy-key-top" ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  来源: {proxyKeySource === "environment" ? "环境变量 PROXY_API_KEY" : "自动生成（重启后会变化，建议设置环境变量）"}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                未配置代理密钥（当前无需认证即可访问代理）
+              </p>
+            )}
+          </div>
         </section>
 
         {/* Endpoints */}
@@ -135,7 +239,8 @@ export default function ProxyDocsPage() {
             <div>
               <h3 className="font-medium mb-2">1. 获取可用模型列表</h3>
               <CodeBlock
-                code={`curl ${baseUrl || "https://your-domain.com"}/v1/models`}
+                code={`curl ${baseUrl || "https://your-domain.com"}/v1/models \\
+  -H "Authorization: Bearer YOUR_API_KEY"`}
                 id="example-models"
               />
               <p className="text-sm text-muted-foreground mt-2">
@@ -148,6 +253,7 @@ export default function ProxyDocsPage() {
               <h3 className="font-medium mb-2">2. OpenAI Chat (流式)</h3>
               <CodeBlock
                 code={`curl ${baseUrl || "https://your-domain.com"}/v1/chat/completions \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "gpt-4o",
@@ -163,6 +269,7 @@ export default function ProxyDocsPage() {
               <h3 className="font-medium mb-2">3. Claude Messages</h3>
               <CodeBlock
                 code={`curl ${baseUrl || "https://your-domain.com"}/v1/messages \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "anthropic-version: 2023-06-01" \\
   -d '{
@@ -179,6 +286,7 @@ export default function ProxyDocsPage() {
               <h3 className="font-medium mb-2">4. Gemini</h3>
               <CodeBlock
                 code={`curl ${baseUrl || "https://your-domain.com"}/v1beta/models/gemini-1.5-flash:generateContent \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "contents": [{"parts": [{"text": "Hello"}]}]
@@ -264,9 +372,6 @@ x-api-key: your-proxy-key
 x-goog-api-key: your-proxy-key`}
               id="auth-headers"
             />
-            <p className="text-sm text-muted-foreground mt-3">
-              管理员可通过 <code className="bg-muted px-1 rounded">GET /api/proxy-key</code> 接口查看当前配置的代理密钥。
-            </p>
           </div>
         </section>
 

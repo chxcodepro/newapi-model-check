@@ -12,12 +12,14 @@
 #   --cloud-redis 云 Redis 模式（仅启动 PostgreSQL）
 #   --cloud       全云端模式（不启动数据库服务）
 #   --rebuild     强制重新构建镜像
+#   --quick       快速模式（跳过可选配置）
 #   --help        显示帮助信息
 #
 # 示例:
 #   ./deploy.sh --local        # 最简单，全部本地运行
 #   ./deploy.sh --cloud-db     # 使用 Supabase/Neon/TiDB 等云数据库
 #   ./deploy.sh --cloud        # 数据库和 Redis 都用云端
+#   ./deploy.sh --quick        # 快速部署，跳过可选配置
 
 set -e
 
@@ -121,6 +123,9 @@ show_help() {
     echo ""
     echo "其他选项:"
     echo "  --rebuild     强制重新构建镜像"
+    echo "  --quick       快速模式 - 跳过可选配置（WebDAV、代理密钥等）"
+    echo "  --update      更新部署 - 拉取最新代码并重启服务"
+    echo "  --status      查看服务状态"
     echo "  --help        显示此帮助信息"
     echo ""
     echo "端口冲突处理:"
@@ -130,7 +135,104 @@ show_help() {
     echo "  PostgreSQL: Supabase (免费), Neon (免费)"
     echo "  TiDB:       TiDB Cloud (免费额度)"
     echo "  Redis:      Upstash (免费), Redis Cloud"
+    echo ""
+    echo "WebDAV 同步:"
+    echo "  支持坚果云、NextCloud 等 WebDAV 服务"
+    echo "  可在多设备间同步渠道配置"
     exit 0
+}
+
+# 更新部署
+do_update() {
+    info "更新部署..."
+
+    # 使用 docker compose 或 docker-compose
+    local compose_cmd="docker compose"
+    if ! docker compose version &> /dev/null; then
+        compose_cmd="docker-compose"
+    fi
+
+    # 拉取最新代码
+    info "拉取最新代码..."
+    if git pull; then
+        success "代码更新完成"
+    else
+        error "代码拉取失败，请检查 git 状态"
+    fi
+
+    # 拉取最新镜像
+    info "拉取最新镜像..."
+    $compose_cmd pull app 2>/dev/null || warn "无法拉取镜像，将使用本地构建"
+
+    # 重启服务
+    info "重启服务..."
+    $compose_cmd up -d --build
+
+    success "更新完成！"
+    echo ""
+    echo "查看日志: docker logs -f newapi-model-check"
+}
+
+# 查看服务状态
+show_status() {
+    echo -e "${CYAN}服务状态${NC}"
+    echo "=========================================="
+
+    # 使用 docker compose 或 docker-compose
+    local compose_cmd="docker compose"
+    if ! docker compose version &> /dev/null; then
+        compose_cmd="docker-compose"
+    fi
+
+    # 显示容器状态
+    echo ""
+    echo "容器状态:"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "newapi|NAMES" || echo "  无运行中的容器"
+
+    # 检查应用健康状态
+    echo ""
+    if docker ps | grep -q "newapi-model-check.*Up"; then
+        echo -e "应用状态: ${GREEN}运行中${NC}"
+
+        # 尝试访问健康检查接口
+        if command -v curl &> /dev/null; then
+            local health=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/status 2>/dev/null)
+            if [ "$health" = "200" ]; then
+                echo -e "健康检查: ${GREEN}正常${NC}"
+            else
+                echo -e "健康检查: ${YELLOW}异常 (HTTP $health)${NC}"
+            fi
+        fi
+    else
+        echo -e "应用状态: ${RED}未运行${NC}"
+    fi
+
+    # 显示配置状态
+    echo ""
+    echo "配置状态:"
+    if [ -f .env ]; then
+        if grep -q "^WEBDAV_URL=" .env && ! grep -q "^WEBDAV_URL=\"\"" .env && ! grep -q "^# WEBDAV_URL=" .env; then
+            echo -e "  WebDAV:     ${GREEN}已配置${NC}"
+        else
+            echo -e "  WebDAV:     ${YELLOW}未配置${NC}"
+        fi
+
+        if grep -q "^PROXY_API_KEY=" .env && ! grep -q "^PROXY_API_KEY=\"\"" .env && ! grep -q "^# PROXY_API_KEY=" .env; then
+            echo -e "  代理密钥:   ${GREEN}已配置${NC}"
+        else
+            echo -e "  代理密钥:   ${YELLOW}自动生成${NC}"
+        fi
+
+        if grep -q "^GLOBAL_PROXY=" .env && ! grep -q "^GLOBAL_PROXY=\"\"" .env && ! grep -q "^# GLOBAL_PROXY=" .env; then
+            echo -e "  全局代理:   ${GREEN}已配置${NC}"
+        else
+            echo -e "  全局代理:   ${YELLOW}未配置${NC}"
+        fi
+    else
+        echo -e "  ${YELLOW}.env 文件不存在${NC}"
+    fi
+
+    echo ""
 }
 
 # 安装 Docker
@@ -245,6 +347,7 @@ generate_secret() {
 # 创建 .env 文件
 setup_env() {
     local mode=$1
+    local quick=$2
 
     if [ -f .env ]; then
         warn ".env 文件已存在"
@@ -350,6 +453,71 @@ setup_env() {
         else
             error "云 Redis 模式必须提供连接字符串"
         fi
+    fi
+
+    # 快速模式跳过可选配置
+    if [ "$quick" = "true" ]; then
+        success ".env 配置完成（快速模式）"
+        return
+    fi
+
+    # ========================================
+    # 可选配置
+    # ========================================
+    echo ""
+    info "以下为可选配置，可直接回车跳过"
+    echo ""
+
+    # 代理密钥配置
+    read -p "设置代理接口密钥 (留空则自动生成，重启后会变化): " proxy_key
+    if [ -n "$proxy_key" ]; then
+        local proxy_key_escaped=$(echo "$proxy_key" | sed 's/[&/\]/\\&/g')
+        sed -i "s|^# PROXY_API_KEY=.*|PROXY_API_KEY=\"$proxy_key_escaped\"|" .env
+        success "已设置代理密钥"
+    fi
+
+    # WebDAV 配置
+    echo ""
+    read -p "是否配置 WebDAV 同步? (y/N): " config_webdav
+    if [[ "$config_webdav" =~ ^[Yy]$ ]]; then
+        echo ""
+        info "WebDAV 同步配置"
+        echo "支持: 坚果云、NextCloud、Alist 等 WebDAV 服务"
+        echo ""
+
+        read -p "WebDAV URL (如 https://dav.jianguoyun.com/dav/newapi): " webdav_url
+        if [ -n "$webdav_url" ]; then
+            webdav_url_escaped=$(echo "$webdav_url" | sed 's/[&/\]/\\&/g')
+            sed -i "s|^# WEBDAV_URL=.*|WEBDAV_URL=\"$webdav_url_escaped\"|" .env
+        fi
+
+        read -p "WebDAV 用户名: " webdav_user
+        if [ -n "$webdav_user" ]; then
+            webdav_user_escaped=$(echo "$webdav_user" | sed 's/[&/\]/\\&/g')
+            sed -i "s|^# WEBDAV_USERNAME=.*|WEBDAV_USERNAME=\"$webdav_user_escaped\"|" .env
+        fi
+
+        read -sp "WebDAV 密码/应用密码: " webdav_pass
+        echo ""
+        if [ -n "$webdav_pass" ]; then
+            webdav_pass_escaped=$(echo "$webdav_pass" | sed 's/[&/\]/\\&/g')
+            sed -i "s|^# WEBDAV_PASSWORD=.*|WEBDAV_PASSWORD=\"$webdav_pass_escaped\"|" .env
+        fi
+
+        if [ -n "$webdav_url" ] && [ -n "$webdav_user" ] && [ -n "$webdav_pass" ]; then
+            success "已配置 WebDAV 同步"
+        else
+            warn "WebDAV 配置不完整，可稍后在 .env 中补充"
+        fi
+    fi
+
+    # 全局代理配置
+    echo ""
+    read -p "全局代理地址 (如 http://127.0.0.1:7890，留空跳过): " global_proxy
+    if [ -n "$global_proxy" ]; then
+        global_proxy_escaped=$(echo "$global_proxy" | sed 's/[&/\]/\\&/g')
+        sed -i "s|^# GLOBAL_PROXY=.*|GLOBAL_PROXY=\"$global_proxy_escaped\"|" .env
+        success "已设置全局代理"
     fi
 
     success ".env 配置完成"
@@ -471,6 +639,25 @@ show_result() {
     else
         echo -e "  PostgreSQL: ${CYAN}本项目容器${NC} (端口: 5432)"
     fi
+
+    # 检查可选配置状态
+    if [ -f .env ]; then
+        if grep -q "^WEBDAV_URL=" .env && ! grep -q "^WEBDAV_URL=\"\"" .env && ! grep -q "^# WEBDAV_URL=" .env; then
+            echo -e "  WebDAV:     ${GREEN}已配置${NC}"
+        else
+            echo -e "  WebDAV:     ${YELLOW}未配置${NC} (可在 .env 中设置)"
+        fi
+
+        if grep -q "^PROXY_API_KEY=" .env && ! grep -q "^PROXY_API_KEY=\"\"" .env && ! grep -q "^# PROXY_API_KEY=" .env; then
+            echo -e "  代理密钥:   ${GREEN}已配置${NC}"
+        else
+            echo -e "  代理密钥:   ${YELLOW}自动生成${NC} (重启后会变化，建议在 .env 中设置固定值)"
+        fi
+
+        if grep -q "^GLOBAL_PROXY=" .env && ! grep -q "^GLOBAL_PROXY=\"\"" .env && ! grep -q "^# GLOBAL_PROXY=" .env; then
+            echo -e "  全局代理:   ${GREEN}已配置${NC}"
+        fi
+    fi
     echo ""
 
     echo "常用命令:"
@@ -479,6 +666,8 @@ show_result() {
     echo "  停止服务:   docker compose down"
     echo "  更新部署:   git pull && docker compose up -d --build"
     echo ""
+
+    echo "配置文件: .env (修改后需重启服务)"
     echo "项目地址: https://github.com/chxcodepro/newapi-model-check"
     echo ""
 }
@@ -490,6 +679,7 @@ main() {
     # 解析参数
     local mode="local"
     local rebuild="false"
+    local quick="false"
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -513,6 +703,18 @@ main() {
                 rebuild="true"
                 shift
                 ;;
+            --quick)
+                quick="true"
+                shift
+                ;;
+            --update)
+                do_update
+                exit 0
+                ;;
+            --status)
+                show_status
+                exit 0
+                ;;
             --help|-h)
                 show_help
                 ;;
@@ -523,6 +725,9 @@ main() {
     done
 
     info "部署模式: $mode"
+    if [ "$quick" = "true" ]; then
+        info "快速模式: 跳过可选配置"
+    fi
     echo ""
 
     # 执行部署流程
@@ -533,7 +738,7 @@ main() {
         check_port_conflicts
     fi
 
-    setup_env "$mode"
+    setup_env "$mode" "$quick"
     start_services "$rebuild"
     init_database
     show_result

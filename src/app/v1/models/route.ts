@@ -12,16 +12,14 @@ export async function GET(request: NextRequest) {
     // Get all models from database with channel info
     const models = await getAllModelsWithChannels();
 
-    // Transform to OpenAI-compatible format with channel info
+    // Transform to OpenAI-compatible format with channel prefix for grouping
     const data = {
       object: "list",
       data: models.map((m) => ({
-        id: m.modelName,
+        id: `${m.channelName}/${m.modelName}`,
         object: "model",
         created: 0,
         owned_by: m.channelName,
-        // Extra field for channel identification
-        channel: m.channelName,
       })),
     };
 
