@@ -20,6 +20,7 @@ import {
   Cloud,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 interface Channel {
@@ -53,6 +54,7 @@ const initialFormData: ChannelFormData = {
 
 export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   const { token } = useAuth();
+  const { toast } = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(false);
@@ -92,7 +94,6 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
   });
   const [webdavEnvConfigured, setWebdavEnvConfigured] = useState(false);
   const [webdavMode, setWebdavMode] = useState<"merge" | "replace">("merge");
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Handle ESC key to close modals
   useEffect(() => {
@@ -356,10 +357,9 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      setSuccessMessage("导出成功");
-      setTimeout(() => setSuccessMessage(null), 2000);
+      toast("导出成功", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导出失败");
+      toast(err instanceof Error ? err.message : "导出失败", "error");
     } finally {
       setExporting(false);
     }
@@ -386,10 +386,9 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
       fetchChannels();
       onUpdate();
       const syncInfo = result.syncedModels > 0 ? `, 同步模型 ${result.syncedModels}` : "";
-      setSuccessMessage(`导入成功: 新增 ${result.imported}, 更新 ${result.updated}, 跳过 ${result.skipped}${syncInfo}`);
-      setTimeout(() => setSuccessMessage(null), 5000);
+      toast(`导入成功: 新增 ${result.imported}, 更新 ${result.updated}, 跳过 ${result.skipped}${syncInfo}`, "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导入失败");
+      toast(err instanceof Error ? err.message : "导入失败", "error");
     } finally {
       setImporting(false);
     }
@@ -431,14 +430,13 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         fetchChannels();
         onUpdate();
         const syncInfo = result.syncedModels > 0 ? `, 同步模型 ${result.syncedModels}` : "";
-        setSuccessMessage(`下载成功: 新增 ${result.imported}, 更新 ${result.updated}, 跳过 ${result.skipped}${syncInfo}`);
+        toast(`下载成功: 新增 ${result.imported}, 更新 ${result.updated}, 跳过 ${result.skipped}${syncInfo}`, "success");
       } else {
-        setSuccessMessage(`上传成功: ${result.channelCount} 个渠道`);
+        toast(`上传成功: ${result.channelCount} 个渠道`, "success");
       }
-      setTimeout(() => setSuccessMessage(null), 5000);
       setShowWebDAVModal(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "同步失败");
+      toast(err instanceof Error ? err.message : "同步失败", "error");
     } finally {
       setWebdavSyncing(false);
     }
@@ -529,13 +527,6 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
           {error && (
             <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
               {error}
-            </div>
-          )}
-
-          {/* Success */}
-          {successMessage && (
-            <div className="p-3 rounded-md bg-green-500/10 text-green-600 dark:text-green-400 text-sm">
-              {successMessage}
             </div>
           )}
 
