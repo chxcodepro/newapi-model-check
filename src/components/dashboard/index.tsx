@@ -6,7 +6,9 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { Summary } from "@/components/dashboard/summary";
 import { ChannelCard } from "@/components/dashboard/channel-card";
 import { ChannelManager } from "@/components/dashboard/channel-manager";
+import { ProxyKeyManager } from "@/components/dashboard/proxy-key-manager";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useToast } from "@/components/ui/toast";
 import { Loader2 } from "lucide-react";
 
 interface CheckLog {
@@ -76,9 +78,10 @@ export function Dashboard({
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, token } = useAuth();
+  const { toast, update } = useToast();
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const token = localStorage.getItem("auth_token");
       const headers: Record<string, string> = {};
@@ -86,24 +89,59 @@ export function Dashboard({
         headers.Authorization = `Bearer ${token}`;
       }
 
-      const response = await fetch("/api/dashboard", { headers });
+      const response = await fetch("/api/dashboard", { headers, signal });
       if (!response.ok) {
         throw new Error("获取数据失败");
       }
 
       const result = await response.json();
-      setData(result);
-      setError(null);
+      // Only update state if request wasn't aborted
+      if (!signal?.aborted) {
+        setData(result);
+        setError(null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "未知错误");
+      // Ignore abort errors
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      if (!signal?.aborted) {
+        setError(err instanceof Error ? err.message : "未知错误");
+      }
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, []);
 
+  // Delete channel handler
+  const handleDeleteChannel = useCallback(async (channelId: string) => {
+    if (!token) return;
+
+    const toastId = toast("正在删除渠道...", "loading");
+    try {
+      const response = await fetch(`/api/channel?id=${channelId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error("删除渠道失败");
+      }
+      update(toastId, "渠道已删除", "success");
+      fetchData();
+    } catch (err) {
+      update(toastId, err instanceof Error ? err.message : "删除失败", "error");
+    }
+  }, [token, toast, update, fetchData]);
+
   // Fetch data on mount and when refreshKey changes (SSE triggers)
   useEffect(() => {
-    fetchData();
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    return () => controller.abort();
   }, [fetchData, refreshKey]);
 
   // Filter and sort channels - default sort by status
@@ -162,7 +200,7 @@ export function Dashboard({
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <p className="text-destructive">{error}</p>
         <button
-          onClick={fetchData}
+          onClick={() => fetchData()}
           className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
         >
           重试
@@ -180,6 +218,9 @@ export function Dashboard({
       {/* Channel Manager (admin only) */}
       {isAuthenticated && <ChannelManager onUpdate={fetchData} />}
 
+      {/* Proxy Key Manager (admin only) */}
+      {isAuthenticated && <ProxyKeyManager />}
+
       {/* Summary Stats */}
       <Summary data={data.summary} />
 
@@ -195,6 +236,7 @@ export function Dashboard({
               key={channel.id}
               channel={channel}
               onRefresh={fetchData}
+              onDelete={handleDeleteChannel}
               testingModelIds={testingModelIds}
               onTestModels={onTestModels}
               onStopModels={onStopModels}

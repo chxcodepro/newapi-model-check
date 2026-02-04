@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NewAPI 监控",
+  title: "模型检测",
   description: "API 渠道可用性监控面板",
 };
 

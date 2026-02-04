@@ -1,8 +1,8 @@
 #!/bin/bash
 # ==========================================
-# NewAPI Model Check - 一键部署脚本
+# Model Check - 一键部署脚本
 # ==========================================
-# 项目地址: https://github.com/chxcodepro/newapi-model-check
+# 项目地址: https://github.com/chxcodepro/model-check
 #
 # 用法: ./deploy.sh [选项]
 #
@@ -105,8 +105,8 @@ check_port_conflicts() {
 show_banner() {
     echo -e "${CYAN}"
     echo "╔══════════════════════════════════════════════╗"
-    echo "║     NewAPI Model Check - 一键部署脚本       ║"
-    echo "║  https://github.com/chxcodepro/newapi-model-check  ║"
+    echo "║       Model Check - 一键部署脚本             ║"
+    echo "║  https://github.com/chxcodepro/model-check   ║"
     echo "╚══════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
@@ -136,9 +136,10 @@ show_help() {
     echo "  TiDB:       TiDB Cloud (免费额度)"
     echo "  Redis:      Upstash (免费), Redis Cloud"
     echo ""
-    echo "WebDAV 同步:"
-    echo "  支持坚果云、NextCloud 等 WebDAV 服务"
-    echo "  可在多设备间同步渠道配置"
+    echo "主要功能:"
+    echo "  多密钥管理 - 在管理面板创建多个代理密钥，支持权限控制"
+    echo "  定时检测   - 可视化配置检测时间、并发数、检测范围"
+    echo "  WebDAV同步 - 支持坚果云、NextCloud，多设备同步渠道配置"
     exit 0
 }
 
@@ -170,7 +171,7 @@ do_update() {
 
     success "更新完成！"
     echo ""
-    echo "查看日志: docker logs -f newapi-model-check"
+    echo "查看日志: docker logs -f model-check"
 }
 
 # 查看服务状态
@@ -187,11 +188,11 @@ show_status() {
     # 显示容器状态
     echo ""
     echo "容器状态:"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "newapi|NAMES" || echo "  无运行中的容器"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "model-check|NAMES" || echo "  无运行中的容器"
 
     # 检查应用健康状态
     echo ""
-    if docker ps | grep -q "newapi-model-check.*Up"; then
+    if docker ps | grep -q "model-check.*Up"; then
         echo -e "应用状态: ${GREEN}运行中${NC}"
 
         # 尝试访问健康检查接口
@@ -485,7 +486,7 @@ setup_env() {
         echo "支持: 坚果云、NextCloud、Alist 等 WebDAV 服务"
         echo ""
 
-        read -p "WebDAV URL (如 https://dav.jianguoyun.com/dav/newapi): " webdav_url
+        read -p "WebDAV URL (如 https://dav.jianguoyun.com/dav/sync): " webdav_url
         if [ -n "$webdav_url" ]; then
             webdav_url_escaped=$(echo "$webdav_url" | sed 's/[&/\]/\\&/g')
             sed -i "s|^# WEBDAV_URL=.*|WEBDAV_URL=\"$webdav_url_escaped\"|" .env
@@ -554,7 +555,7 @@ start_services() {
     local max_attempts=30
     local attempt=0
     while [ $attempt -lt $max_attempts ]; do
-        if docker ps | grep -q "newapi-model-check.*Up"; then
+        if docker ps | grep -q "model-check.*Up"; then
             break
         fi
         attempt=$((attempt + 1))
@@ -564,7 +565,7 @@ start_services() {
     echo ""
 
     if [ $attempt -eq $max_attempts ]; then
-        error "服务启动超时，请检查日志: docker logs newapi-model-check"
+        error "服务启动超时，请检查日志: docker logs model-check"
     fi
 
     success "服务已启动"
@@ -581,12 +582,12 @@ init_database() {
     fi
 
     # 检查是否有本项目的 PostgreSQL 容器
-    if docker ps --format '{{.Names}}' | grep -q "newapi-postgres"; then
+    if docker ps --format '{{.Names}}' | grep -q "model-check-postgres"; then
         info "等待数据库就绪..."
         local max_attempts=30
         local attempt=0
         while [ $attempt -lt $max_attempts ]; do
-            if $compose_cmd exec -T postgres pg_isready -U newapi -d newapi_monitor &>/dev/null; then
+            if $compose_cmd exec -T postgres pg_isready -U modelcheck -d model_check &>/dev/null; then
                 break
             fi
             attempt=$((attempt + 1))
@@ -601,7 +602,7 @@ init_database() {
 
         # 使用项目自带的 SQL 脚本初始化数据库
         info "创建数据库表..."
-        if cat prisma/init.postgresql.sql | $compose_cmd exec -T postgres psql -U newapi -d newapi_monitor; then
+        if cat prisma/init.postgresql.sql | $compose_cmd exec -T postgres psql -U modelcheck -d model_check; then
             success "数据库初始化完成"
         else
             warn "数据库初始化失败，可能表已存在（可忽略）"
@@ -651,7 +652,7 @@ show_result() {
         if grep -q "^PROXY_API_KEY=" .env && ! grep -q "^PROXY_API_KEY=\"\"" .env && ! grep -q "^# PROXY_API_KEY=" .env; then
             echo -e "  代理密钥:   ${GREEN}已配置${NC}"
         else
-            echo -e "  代理密钥:   ${YELLOW}自动生成${NC} (重启后会变化，建议在 .env 中设置固定值)"
+            echo -e "  代理密钥:   ${YELLOW}自动生成${NC} (可在管理面板创建多个密钥)"
         fi
 
         if grep -q "^GLOBAL_PROXY=" .env && ! grep -q "^GLOBAL_PROXY=\"\"" .env && ! grep -q "^# GLOBAL_PROXY=" .env; then
@@ -660,15 +661,21 @@ show_result() {
     fi
     echo ""
 
+    echo "主要功能:"
+    echo "  多密钥管理 - 管理面板 → 代理密钥管理 → 添加"
+    echo "  定时检测   - 管理面板 → 顶部齿轮按钮"
+    echo "  WebDAV同步 - 管理面板 → 渠道管理 → 同步按钮"
+    echo ""
+
     echo "常用命令:"
-    echo "  查看日志:   docker logs -f newapi-model-check"
+    echo "  查看日志:   docker logs -f model-check"
     echo "  重启服务:   docker compose restart"
     echo "  停止服务:   docker compose down"
     echo "  更新部署:   git pull && docker compose up -d --build"
     echo ""
 
     echo "配置文件: .env (修改后需重启服务)"
-    echo "项目地址: https://github.com/chxcodepro/newapi-model-check"
+    echo "项目地址: https://github.com/chxcodepro/model-check"
     echo ""
 }
 

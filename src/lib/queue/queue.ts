@@ -162,27 +162,56 @@ export async function clearQueue(): Promise<void> {
 
 /**
  * Pause queue and drain all waiting jobs (for stopping detection)
+ * Also cancels active jobs by moving them to failed state
  * Returns the number of jobs that were cleared
  */
 export async function pauseAndDrainQueue(): Promise<{ cleared: number }> {
   const queue = getDetectionQueue();
 
-  // Pause the queue to prevent new jobs from being processed
+  // Pause the queue globally to prevent new jobs from being processed across all workers
   await queue.pause();
 
   // Get counts before clearing
-  const [waiting, delayed] = await Promise.all([
+  const [waiting, delayed, activeJobs] = await Promise.all([
     queue.getWaitingCount(),
     queue.getDelayedCount(),
+    queue.getJobs(["active"], 0, 1000),
   ]);
 
-  // Drain waiting and delayed jobs
-  await queue.drain();
+  const activeCount = activeJobs.length;
+
+  // Move active jobs to failed state to stop them
+  // This signals the worker to stop processing these jobs
+  const failPromises = activeJobs.map(async (job) => {
+    try {
+      // Use discardJob for safer cancellation, fallback to moveToFailed
+      if (job.token) {
+        await job.moveToFailed(new Error("Detection stopped by user"), job.token, true);
+      } else {
+        // If no token, try to remove the job directly
+        await job.remove().catch(() => {});
+      }
+    } catch (err) {
+      // Job may have completed or already failed, ignore
+      console.log(`[Queue] Could not stop job ${job.id}:`, err instanceof Error ? err.message : err);
+    }
+  });
+  await Promise.allSettled(failPromises);
+
+  // Drain waiting and delayed jobs (true = also drain delayed)
+  await queue.drain(true);
+
+  // Clear Redis semaphore counters to reset concurrency tracking
+  const redis = (await import("@/lib/redis")).default;
+  const semaphoreKeys = await redis.keys("detection:semaphore:*");
+  if (semaphoreKeys.length > 0) {
+    await redis.del(...semaphoreKeys);
+  }
 
   // Resume queue for future jobs
   await queue.resume();
 
-  return { cleared: waiting + delayed };
+  return { cleared: waiting + delayed + activeCount };
 }
 
 /**

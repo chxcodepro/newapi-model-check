@@ -1,5 +1,5 @@
-# NewAPI Model Check - Docker Compose Configuration
-# https://github.com/chxcodepro/newapi-model-check
+# Model Check - Docker Compose Configuration
+# https://github.com/chxcodepro/model-check
 #
 # Usage (通过 COMPOSE_PROFILES 控制启动哪些服务):
 #   全本地：    COMPOSE_PROFILES="local"        → PostgreSQL + Redis
@@ -22,17 +22,17 @@ services:
   # Application
   # ========================================
   app:
-    image: ${APP_IMAGE:-ghcr.io/chxcodepro/newapi-model-check:latest}
+    image: ${APP_IMAGE:-ghcr.io/chxcodepro/model-check:latest}
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: newapi-model-check
+    container_name: model-check
     restart: always
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=${DOCKER_DATABASE_URL:-postgresql://newapi:newapi123456@postgres:5432/newapi_monitor}
+      - DATABASE_URL=${DOCKER_DATABASE_URL:-postgresql://modelcheck:modelcheck123456@postgres:5432/model_check}
       - REDIS_URL=${DOCKER_REDIS_URL:-redis://redis:6379}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
@@ -53,7 +53,7 @@ services:
       - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-}
       - WEBDAV_FILENAME=${WEBDAV_FILENAME:-}
     networks:
-      - newapi-network
+      - model-check-network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/status"]
       interval: 30s
@@ -66,21 +66,21 @@ services:
   # ========================================
   postgres:
     image: docker.m.daocloud.io/library/postgres:16-alpine
-    container_name: newapi-postgres
+    container_name: model-check-postgres
     restart: always
     profiles: ["local", "db"]
     environment:
-      POSTGRES_DB: newapi_monitor
-      POSTGRES_USER: newapi
-      POSTGRES_PASSWORD: newapi123456
+      POSTGRES_DB: model_check
+      POSTGRES_USER: modelcheck
+      POSTGRES_PASSWORD: modelcheck123456
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     networks:
-      - newapi-network
+      - model-check-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U newapi -d newapi_monitor"]
+      test: ["CMD-SHELL", "pg_isready -U modelcheck -d model_check"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -91,7 +91,7 @@ services:
   # ========================================
   redis:
     image: docker.m.daocloud.io/library/redis:7-alpine
-    container_name: newapi-redis
+    container_name: model-check-redis
     restart: always
     profiles: ["local", "redis"]
     ports:
@@ -99,7 +99,7 @@ services:
     volumes:
       - ./data/redis:/data
     networks:
-      - newapi-network
+      - model-check-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -111,5 +111,5 @@ services:
 # Networks
 # ========================================
 networks:
-  newapi-network:
+  model-check-network:
     driver: bridge

@@ -300,3 +300,115 @@ export async function getDetectionProgress() {
     testingModelIds,
   };
 }
+
+/**
+ * Trigger detection for selected channels/models (scheduled detection)
+ * @param channelIds - Array of channel IDs to test (null = all enabled channels)
+ * @param modelIdsByChannel - Map of channel IDs to model IDs to test (null = all models per channel)
+ */
+export async function triggerSelectiveDetection(
+  channelIds: string[] | null,
+  modelIdsByChannel: Record<string, string[]> | null
+): Promise<{
+  channelCount: number;
+  modelCount: number;
+  jobIds: string[];
+  syncResults?: { channelId: string; added: number; total: number }[];
+}> {
+  console.log("[Service] Starting selective detection...");
+
+  // If no specific channels selected, fall back to full detection
+  if (!channelIds || channelIds.length === 0) {
+    return triggerFullDetection(true);
+  }
+
+  // Fetch selected channels
+  const channels = await prisma.channel.findMany({
+    where: {
+      id: { in: channelIds },
+      enabled: true,
+    },
+  });
+
+  if (channels.length === 0) {
+    console.log("[Service] No enabled channels found in selection");
+    return { channelCount: 0, modelCount: 0, jobIds: [] };
+  }
+
+  // Sync models from remote API for selected channels
+  const syncResults: { channelId: string; added: number; total: number }[] = [];
+  for (const channel of channels) {
+    try {
+      const result = await syncChannelModels(channel.id);
+      syncResults.push({
+        channelId: channel.id,
+        added: result.added,
+        total: result.total,
+      });
+    } catch (error) {
+      console.error(`[Service] Failed to sync models for channel ${channel.name}:`, error);
+    }
+  }
+
+  // Re-fetch channels with models
+  const channelsWithModels = await prisma.channel.findMany({
+    where: {
+      id: { in: channelIds },
+      enabled: true,
+    },
+    include: {
+      models: {
+        select: {
+          id: true,
+          modelName: true,
+          detectedEndpoints: true,
+        },
+      },
+    },
+  });
+
+  const jobs: DetectionJobData[] = [];
+
+  for (const channel of channelsWithModels) {
+    // Get models to test for this channel
+    let modelsToTest = channel.models;
+
+    // If specific models are selected for this channel, filter them
+    if (modelIdsByChannel && modelIdsByChannel[channel.id]) {
+      const selectedModelIds = modelIdsByChannel[channel.id];
+      modelsToTest = channel.models.filter((m) => selectedModelIds.includes(m.id));
+    }
+
+    for (const model of modelsToTest) {
+      const endpointsToTest = getEndpointsToTest(model.modelName);
+
+      for (const endpointType of endpointsToTest) {
+        jobs.push({
+          channelId: channel.id,
+          modelId: model.id,
+          modelName: model.modelName,
+          baseUrl: channel.baseUrl,
+          apiKey: channel.apiKey,
+          proxy: channel.proxy,
+          endpointType,
+        });
+      }
+    }
+  }
+
+  if (jobs.length === 0) {
+    console.log("[Service] No models to detect in selection");
+    return { channelCount: 0, modelCount: 0, jobIds: [], syncResults };
+  }
+
+  const jobIds = await addDetectionJobsBulk(jobs);
+
+  console.log(`[Service] Queued ${jobs.length} selective detection jobs`);
+
+  return {
+    channelCount: channelsWithModels.length,
+    modelCount: jobs.length,
+    jobIds,
+    syncResults,
+  };
+}

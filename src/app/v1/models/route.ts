@@ -1,16 +1,16 @@
 // GET /v1/models - Return all models from all enabled channels
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAllModelsWithChannels, errorResponse, verifyProxyKey } from "@/lib/proxy";
+import { getAllModelsWithChannels, verifyProxyKeyAsync, errorResponse } from "@/lib/proxy";
 
 export async function GET(request: NextRequest) {
-  // Verify proxy API key
-  const authError = verifyProxyKey(request);
+  // Verify proxy API key (async for multi-key support)
+  const { error: authError, keyResult } = await verifyProxyKeyAsync(request);
   if (authError) return authError;
 
   try {
-    // Get all models from database with channel info
-    const models = await getAllModelsWithChannels();
+    // Get all models from database with channel info, filtered by key permissions
+    const models = await getAllModelsWithChannels(keyResult);
 
     // Transform to OpenAI-compatible format with channel prefix for grouping
     const data = {

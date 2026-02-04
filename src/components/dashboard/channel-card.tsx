@@ -3,7 +3,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Clock, Zap, PlayCircle, Square, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Clock, Zap, PlayCircle, Square, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusIndicator } from "@/components/ui/status-indicator";
 import { Heatmap } from "@/components/ui/heatmap";
@@ -39,6 +39,7 @@ interface ChannelCardProps {
     models: Model[];
   };
   onRefresh?: () => void;
+  onDelete?: (channelId: string) => void;
   className?: string;
   onEndpointFilterChange?: (endpoint: string | null) => void;
   activeEndpointFilter?: string | null;
@@ -93,6 +94,7 @@ function formatEndpointType(ep: string): { label: string; type: "chat" | "cli" }
 }
 
 // Helper function to check if a model is healthy based on checkLogs
+// Model is healthy only if ALL tested endpoints are successful
 function isModelHealthy(model: Model): boolean {
   if (model.checkLogs.length === 0) return false;
 
@@ -107,6 +109,24 @@ function isModelHealthy(model: Model): boolean {
   // Model is healthy only if all tested endpoints are successful
   const statuses = Object.values(endpointStatuses);
   return statuses.length > 0 && statuses.every((s) => s === "SUCCESS");
+}
+
+// Helper function to check if a model has at least one available endpoint
+// Model is available if ANY endpoint (chat OR cli) is successful
+function isModelAvailable(model: Model): boolean {
+  if (model.checkLogs.length === 0) return false;
+
+  // Get latest status for each endpoint type
+  const endpointStatuses: Record<string, string> = {};
+  for (const log of model.checkLogs) {
+    if (!endpointStatuses[log.endpointType]) {
+      endpointStatuses[log.endpointType] = log.status;
+    }
+  }
+
+  // Model is available if at least one endpoint is successful
+  const statuses = Object.values(endpointStatuses);
+  return statuses.length > 0 && statuses.some((s) => s === "SUCCESS");
 }
 
 // Helper function to get health counts by endpoint category (Chat vs CLI)
@@ -152,10 +172,11 @@ function getEndpointHealthCounts(models: Model[]): {
   return result;
 }
 
-export function ChannelCard({ channel, onRefresh, className, onEndpointFilterChange, activeEndpointFilter, testingModelIds = new Set(), onTestModels, onStopModels }: ChannelCardProps) {
+export function ChannelCard({ channel, onRefresh, onDelete, className, onEndpointFilterChange, activeEndpointFilter, testingModelIds = new Set(), onTestModels, onStopModels }: ChannelCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [localEndpointFilter, setLocalEndpointFilter] = useState<string | null>(null);
   const [hoveringChannelStop, setHoveringChannelStop] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
   const { isAuthenticated, token } = useAuth();
   const { toast, update } = useToast();
 
@@ -182,6 +203,12 @@ export function ChannelCard({ channel, onRefresh, className, onEndpointFilterCha
     if (healthyCount === 0) return "unhealthy" as const;
     return "partial" as const;
   })();
+
+  // Check if all models are unavailable after detection
+  // A model is unavailable only if BOTH chat and cli endpoints fail (no endpoint works)
+  const checkedModels = channel.models.filter((m) => m.checkLogs.length > 0);
+  const availableCount = checkedModels.filter(isModelAvailable).length;
+  const isAllUnhealthy = checkedModels.length > 0 && availableCount === 0;
 
   // Handle endpoint filter click
   const handleEndpointClick = (endpoint: string, e: React.MouseEvent) => {
@@ -320,7 +347,10 @@ export function ChannelCard({ channel, onRefresh, className, onEndpointFilterCha
   return (
     <div
       className={cn(
-        "rounded-lg border border-border bg-card overflow-hidden transition-shadow hover:shadow-md",
+        "rounded-lg border overflow-hidden transition-shadow",
+        isAllUnhealthy
+          ? "border-dashed border-red-400 dark:border-red-500 bg-red-50/30 dark:bg-red-900/10"
+          : "border-border bg-card hover:shadow-md",
         className
       )}
     >
@@ -333,9 +363,9 @@ export function ChannelCard({ channel, onRefresh, className, onEndpointFilterCha
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <StatusIndicator status={channelStatus} size="lg" pulse={channelStatus !== "unknown"} />
             <div className="text-left min-w-0">
-              <h3 className="font-medium truncate">{channel.name}</h3>
-              <p className="text-sm text-muted-foreground">
-                {healthSummary}
+              <h3 className={cn("font-medium truncate", isAllUnhealthy && "text-muted-foreground")}>{channel.name}</h3>
+              <p className={cn("text-sm", isAllUnhealthy ? "text-red-500 dark:text-red-400" : "text-muted-foreground")}>
+                {isAllUnhealthy ? `${totalCount} 个模型均不可用` : healthSummary}
               </p>
             </div>
           </div>
@@ -421,6 +451,37 @@ export function ChannelCard({ channel, onRefresh, className, onEndpointFilterCha
               <PlayCircle className="h-5 w-5 text-blue-500" />
             )}
           </button>
+        )}
+
+        {/* Delete button for all-unhealthy channel */}
+        {isAuthenticated && isAllUnhealthy && onDelete && (
+          deleteConfirm ? (
+            <div className="flex items-center gap-1 px-2 shrink-0">
+              <button
+                onClick={() => {
+                  onDelete(channel.id);
+                  setDeleteConfirm(false);
+                }}
+                className="px-2 py-1 text-xs rounded bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                确认
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(false)}
+                className="px-2 py-1 text-xs rounded bg-muted hover:bg-muted/80"
+              >
+                取消
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setDeleteConfirm(true)}
+              className="p-4 transition-colors border-l border-border shrink-0 hover:bg-red-500/10"
+              title="删除此渠道"
+            >
+              <Trash2 className="h-5 w-5 text-red-500" />
+            </button>
+          )
         )}
       </div>
 

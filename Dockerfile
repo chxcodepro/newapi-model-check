@@ -1,7 +1,7 @@
 # ========================================
 # Stage 1: Dependencies
 # ========================================
-# https://github.com/chxcodepro/newapi-model-check
+# https://github.com/chxcodepro/model-check
 FROM docker.m.daocloud.io/library/node:20-alpine AS deps
 WORKDIR /app
 

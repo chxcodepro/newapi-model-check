@@ -39,10 +39,34 @@ export function detectCliEndpointType(modelName: string): EndpointType | null {
 }
 
 /**
+ * Determine if model is an image generation model
+ */
+export function isImageModel(modelName: string): boolean {
+  const name = modelName.toLowerCase();
+  return (
+    name.includes("dall-e") ||
+    name.includes("dalle") ||
+    name.includes("image") ||
+    name.includes("midjourney") ||
+    name.includes("stable-diffusion") ||
+    name.includes("sd-") ||
+    name.includes("sdxl") ||
+    name.includes("flux") ||
+    name.includes("ideogram") ||
+    name.includes("playground")
+  );
+}
+
+/**
  * Get all endpoint types to test for a model
- * Always includes CHAT, plus CLI endpoint if applicable
+ * Image models only test IMAGE endpoint, others test CHAT plus CLI endpoint if applicable
  */
 export function getEndpointsToTest(modelName: string): EndpointType[] {
+  // Image models only support IMAGE endpoint
+  if (isImageModel(modelName)) {
+    return [EndpointType.IMAGE];
+  }
+
   const endpoints: EndpointType[] = [EndpointType.CHAT];
   const cliEndpoint = detectCliEndpointType(modelName);
 
@@ -84,6 +108,9 @@ export function buildEndpointDetection(
 
     case EndpointType.CODEX:
       return buildCodexEndpoint(normalizedBaseUrl, apiKey, modelName);
+
+    case EndpointType.IMAGE:
+      return buildImageEndpoint(normalizedBaseUrl, apiKey, modelName);
 
     case EndpointType.CHAT:
     default:
@@ -214,6 +241,31 @@ function buildChatEndpoint(
           content: DETECT_PROMPT,
         },
       ],
+    },
+  };
+}
+
+/**
+ * Build OpenAI /v1/images/generations endpoint for DALL-E and other image models
+ */
+function buildImageEndpoint(
+  baseUrl: string,
+  apiKey: string,
+  modelName: string
+): EndpointDetection {
+  return {
+    type: EndpointType.IMAGE,
+    url: `${baseUrl}/v1/images/generations`,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    requestBody: {
+      model: modelName,
+      prompt: "A simple red circle on white background",
+      n: 1,
+      size: "256x256", // Use smallest size to minimize cost
+      response_format: "url",
     },
   };
 }

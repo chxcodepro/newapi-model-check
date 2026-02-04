@@ -85,12 +85,13 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
 
   // WebDAV sync state
   const [showWebDAVModal, setShowWebDAVModal] = useState(false);
-  const [webdavSyncing, setWebdavSyncing] = useState(false);
+  const [webdavUploading, setWebdavUploading] = useState(false);
+  const [webdavDownloading, setWebdavDownloading] = useState(false);
   const [webdavConfig, setWebdavConfig] = useState({
     url: "",
     username: "",
     password: "",
-    filename: "newapi-channels.json",
+    filename: "channels.json",
   });
   const [webdavEnvConfigured, setWebdavEnvConfigured] = useState(false);
   const [webdavMode, setWebdavMode] = useState<"merge" | "replace">("merge");
@@ -116,7 +117,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         url: "",
         username: "",
         password: "",
-        filename: "newapi-channels.json",
+        filename: "channels.json",
       };
 
       if (typeof window !== "undefined") {
@@ -352,7 +353,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `newapi-channels-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `channels-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -407,7 +408,11 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
 
   // WebDAV sync
   const handleWebDAVSync = async (action: "upload" | "download") => {
-    setWebdavSyncing(true);
+    if (action === "upload") {
+      setWebdavUploading(true);
+    } else {
+      setWebdavDownloading(true);
+    }
     setError(null);
 
     // Save config to localStorage before request (so password is preserved even on failure)
@@ -430,15 +435,21 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
         fetchChannels();
         onUpdate();
         const syncInfo = result.syncedModels > 0 ? `, 同步模型 ${result.syncedModels}` : "";
-        toast(`下载成功: 新增 ${result.imported}, 更新 ${result.updated}, 跳过 ${result.skipped}${syncInfo}`, "success");
+        const dupInfo = result.duplicates > 0 ? `, 重复跳过 ${result.duplicates}` : "";
+        toast(`下载成功: 新增 ${result.imported}, 跳过 ${result.skipped}${dupInfo}${syncInfo}`, "success");
       } else {
-        toast(`上传成功: ${result.channelCount} 个渠道`, "success");
+        const mergeInfo = result.mergedFromRemote > 0 ? `, 合并远端 ${result.mergedFromRemote}` : "";
+        toast(`上传成功: 本地 ${result.localCount} 个渠道, 共上传 ${result.totalUploaded} 个${mergeInfo}`, "success");
       }
       setShowWebDAVModal(false);
     } catch (err) {
       toast(err instanceof Error ? err.message : "同步失败", "error");
     } finally {
-      setWebdavSyncing(false);
+      if (action === "upload") {
+        setWebdavUploading(false);
+      } else {
+        setWebdavDownloading(false);
+      }
     }
   };
 
@@ -937,28 +948,28 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                   value={webdavConfig.filename}
                   onChange={(e) => setWebdavConfig({ ...webdavConfig, filename: e.target.value })}
                   className="w-full px-3 py-2 rounded-md border border-input bg-background"
-                  placeholder="newapi-channels.json"
+                  placeholder="channels.json"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   可包含子目录（如 backup/channels.json），子目录会自动创建
                 </p>
               </div>
 
-              {/* Download mode */}
+              {/* Sync mode */}
               <div>
-                <label className="block text-sm font-medium mb-1">下载模式</label>
+                <label className="block text-sm font-medium mb-1">同步模式</label>
                 <select
                   value={webdavMode}
                   onChange={(e) => setWebdavMode(e.target.value as "merge" | "replace")}
                   className="w-full px-3 py-2 rounded-md border border-input bg-background"
                 >
-                  <option value="merge">合并（更新同名渠道）</option>
-                  <option value="replace">替换（删除所有现有渠道）</option>
+                  <option value="merge">合并（保留已有渠道，仅添加新渠道）</option>
+                  <option value="replace">替换（清空后重新导入）</option>
                 </select>
               </div>
 
               {/* Error in modal */}
-              {error && webdavSyncing && (
+              {error && (webdavUploading || webdavDownloading) && (
                 <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
                   {error}
                 </div>
@@ -975,19 +986,19 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                 </button>
                 <button
                   onClick={() => handleWebDAVSync("download")}
-                  disabled={webdavSyncing || !webdavConfig.url}
+                  disabled={webdavUploading || webdavDownloading || !webdavConfig.url}
                   className="px-4 py-2 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
-                  {webdavSyncing && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {webdavDownloading && <Loader2 className="h-4 w-4 animate-spin" />}
                   <Download className="h-4 w-4" />
                   下载
                 </button>
                 <button
                   onClick={() => handleWebDAVSync("upload")}
-                  disabled={webdavSyncing || !webdavConfig.url}
+                  disabled={webdavUploading || webdavDownloading || !webdavConfig.url}
                   className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
-                  {webdavSyncing && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {webdavUploading && <Loader2 className="h-4 w-4 animate-spin" />}
                   <Upload className="h-4 w-4" />
                   上传
                 </button>

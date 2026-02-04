@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireAuth } from "@/lib/middleware/auth";
 import { EndpointType } from "@prisma/client";
+import { appendChannelToWebDAV, removeChannelFromWebDAV, isWebDAVConfigured } from "@/lib/webdav/sync";
 
 // GET /api/channel - List all channels (authenticated)
 export async function GET(request: NextRequest) {
@@ -73,6 +74,19 @@ export async function POST(request: NextRequest) {
           detectedEndpoints: [] as EndpointType[],
         })),
         skipDuplicates: true,
+      });
+    }
+
+    // Sync to WebDAV if configured (async, don't block response)
+    if (isWebDAVConfigured()) {
+      appendChannelToWebDAV({
+        name: channel.name,
+        baseUrl: channel.baseUrl,
+        apiKey: channel.apiKey,
+        proxy: channel.proxy,
+        enabled: channel.enabled,
+      }).catch((err) => {
+        console.error("[API] WebDAV append error:", err);
       });
     }
 
@@ -153,9 +167,35 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    // Get channel info before deletion (for WebDAV sync)
+    const channel = await prisma.channel.findUnique({
+      where: { id },
+      select: { name: true, baseUrl: true, apiKey: true, proxy: true, enabled: true },
+    });
+
+    if (!channel) {
+      return NextResponse.json(
+        { error: "Channel not found", code: "NOT_FOUND" },
+        { status: 404 }
+      );
+    }
+
     await prisma.channel.delete({
       where: { id },
     });
+
+    // Sync to WebDAV if configured (async, don't block response)
+    if (isWebDAVConfigured()) {
+      removeChannelFromWebDAV({
+        name: channel.name,
+        baseUrl: channel.baseUrl,
+        apiKey: channel.apiKey,
+        proxy: channel.proxy,
+        enabled: channel.enabled,
+      }).catch((err) => {
+        console.error("[API] WebDAV remove error:", err);
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

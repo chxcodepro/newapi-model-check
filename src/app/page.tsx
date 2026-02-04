@@ -191,12 +191,12 @@ export default function Home() {
       <footer className="border-t border-border py-4">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
           <a
-            href="https://github.com/chxcodepro/newapi-model-check"
+            href="https://github.com/chxcodepro/model-check"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-foreground transition-colors"
           >
-            NewAPI 监控
+            模型检测
           </a>
           {" - API 渠道可用性检测系统"}
         </div>

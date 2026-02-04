@@ -1,4 +1,4 @@
-# NewAPI Model Check
+# Model Check
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org/)
@@ -7,14 +7,14 @@
 [![TiDB](https://img.shields.io/badge/TiDB-Supported-red)](https://www.pingcap.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED)](https://www.docker.com/)
 
-API 渠道可用性检测系统 - 实时监控多个 API 渠道的模型可用性状态，并提供统一的 API 代理服务。
+API 渠道模型检测系统 - 实时监控多个 API 渠道的模型可用性状态，并提供统一的 API 代理服务，支持代理模型映射。
 
 ## 功能特性
 
 ### 监控功能
-- **多端点检测** - 支持 OpenAI Chat、Claude、Gemini、Codex 等多种 API 格式
+- **多端点检测** - 支持 OpenAI Chat、Claude、Gemini、Codex、图像生成等多种 API 格式
 - **实时监控** - SSE 实时推送检测进度和结果
-- **定时任务** - 可配置的周期性检测（默认每天 0/8/12/16/20 点）
+- **定时任务** - 可视化配置定时检测，支持自定义 Cron 表达式和检测范围
 - **数据清理** - 自动清理过期日志（默认保留 7 天）
 - **热力图** - 可视化展示模型历史检测状态
 
@@ -24,9 +24,12 @@ API 渠道可用性检测系统 - 实时监控多个 API 渠道的模型可用�
 - **渠道分组** - 模型 ID 格式为 `渠道名/模型名`，便于客户端分组显示
 - **多协议支持** - 兼容 OpenAI / Claude / Gemini API 格式
 - **流式响应** - 完整支持 SSE 流式输出
+- **多密钥管理** - 支持创建多个代理密钥，可配置权限（允许的渠道/模型）
 
 ### 管理功能
 - **渠道管理** - 支持 WebDAV 同步、批量导入导出
+- **密钥管理** - 多代理密钥管理，支持启用/禁用、权限控制、使用统计
+- **定时任务配置** - 可视化配置检测时间、并发数、检测范围
 - **WebDAV 同步** - 支持坚果云、NextCloud 等，多设备同步渠道配置
 - **多数据库** - 支持 PostgreSQL（默认）、TiDB、MySQL
 - **深色模式** - 支持浅色/深色主题切换
@@ -39,8 +42,8 @@ API 渠道可用性检测系统 - 实时监控多个 API 渠道的模型可用�
 无需手动安装 Docker，脚本会自动检测并安装：
 
 ```bash
-git clone https://github.com/chxcodepro/newapi-model-check.git
-cd newapi-model-check
+git clone https://github.com/chxcodepro/model-check.git
+cd model-check
 chmod +x deploy.sh && ./deploy.sh
 ```
 
@@ -68,8 +71,8 @@ chmod +x deploy.sh && ./deploy.sh
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/chxcodepro/newapi-model-check.git
-cd newapi-model-check
+git clone https://github.com/chxcodepro/model-check.git
+cd model-check
 
 # 2. 配置环境变量
 cp .env.example .env
@@ -208,7 +211,43 @@ x-api-key: your-proxy-key
 x-goog-api-key: your-proxy-key
 ```
 
-代理密钥通过 `PROXY_API_KEY` 环境变量配置。如未设置，系统会自动生成（重启后会变化）。
+代理密钥可通过以下方式管理：
+
+1. **环境变量配置**：设置 `PROXY_API_KEY` 环境变量（重启后保持不变）
+2. **管理面板**：登录后展开「代理密钥管理」，可创建多个密钥，支持权限控制
+
+如未设置环境变量也未创建数据库密钥，系统会自动生成一个临时密钥（重启后会变化）。
+
+## 多密钥管理
+
+支持创建多个代理密钥，每个密钥可独立配置权限和状态。
+
+### 密钥类型
+
+| 类型 | 来源 | 特点 |
+|------|------|------|
+| 环境变量密钥 | `PROXY_API_KEY` 环境变量 | 重启后保持不变，始终有效 |
+| 自动生成密钥 | 系统自动生成 | 仅当无其他密钥时生效，重启后会变化 |
+| 数据库密钥 | 管理面板创建 | 可配置权限，支持启用/禁用，记录使用统计 |
+
+### 权限控制
+
+数据库密钥支持以下权限配置：
+
+- **所有模型**：可访问所有检测成功的模型
+- **指定渠道**：只能访问指定渠道下的模型
+- **指定模型**：只能访问指定的模型
+
+### 管理操作
+
+登录管理面板后，展开「代理密钥管理」面板可进行：
+
+- **创建密钥**：自动生成或自定义密钥值（必须以 `sk-` 开头）
+- **编辑密钥**：修改名称、权限配置
+- **启用/禁用**：临时禁用密钥而不删除
+- **重新生成**：生成新的随机密钥值
+- **查看统计**：查看密钥使用次数和最后使用时间
+- **复制密钥**：点击复制按钮获取完整密钥
 
 ## WebDAV 同步
 
@@ -221,10 +260,10 @@ x-goog-api-key: your-proxy-key
 在 `.env` 中设置：
 
 ```bash
-WEBDAV_URL="https://dav.jianguoyun.com/dav/newapi"
+WEBDAV_URL="https://dav.jianguoyun.com/dav/sync"
 WEBDAV_USERNAME="your-email@example.com"
 WEBDAV_PASSWORD="your-app-password"
-WEBDAV_FILENAME="newapi-channels.json"  # 可选，默认 newapi-channels.json
+WEBDAV_FILENAME="channels.json"  # 可选，默认 channels.json
 ```
 
 配置后，页面上会自动显示 WebDAV 配置，点击同步按钮即可使用。
@@ -270,7 +309,7 @@ TiDB 是 MySQL 兼容的分布式数据库，适合大规模部署。
    ```
 2. 配置连接串：
    ```bash
-   DOCKER_DATABASE_URL="mysql://user:password@gateway01.xx.tidbcloud.com:4000/newapi_monitor?sslaccept=strict"
+   DOCKER_DATABASE_URL="mysql://user:password@gateway01.xx.tidbcloud.com:4000/model_check?sslaccept=strict"
    ```
 3. 重新构建：
    ```bash
@@ -294,17 +333,19 @@ TiDB 是 MySQL 兼容的分布式数据库，适合大规模部署。
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `AUTO_DETECT_ENABLED` | 自动检测开关 | `true` |
+| `AUTO_DETECT_ENABLED` | 自动检测开关（可通过 UI 修改） | `true` |
 | `DETECT_PROMPT` | 检测提示词 | `1+1=2? yes or no` |
-| `GLOBAL_PROXY` | 全局代理地址 | - |
-| `CRON_SCHEDULE` | 检测周期（cron 格式） | `0 0,8,12,16,20 * * *` |
+| `GLOBAL_PROXY` | 全局代理地址（支持 HTTP/HTTPS/SOCKS5） | - |
+| `CRON_SCHEDULE` | 检测周期（cron 格式，可通过 UI 修改） | `0 0,8,12,16,20 * * *` |
 | `CRON_TIMEZONE` | 定时任务时区 | `Asia/Shanghai` |
 | `CLEANUP_SCHEDULE` | 清理周期（cron 格式） | `0 2 * * *` |
 | `LOG_RETENTION_DAYS` | 日志保留天数 | `7` |
 | `APP_PORT` | 应用端口 | `3000` |
-| `PROXY_API_KEY` | 代理接口密钥 | 自动生成 |
+| `PROXY_API_KEY` | 代理接口密钥（可在 UI 创建多个密钥） | 自动生成 |
 
-### 并发控制
+> **提示**：`AUTO_DETECT_ENABLED`、`CRON_SCHEDULE` 和并发参数现在可以通过管理面板的「定时检测设置」进行可视化配置，无需修改环境变量。
+
+### 并发控制（可通过 UI 修改）
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
@@ -317,10 +358,10 @@ TiDB 是 MySQL 兼容的分布式数据库，适合大规模部署。
 
 | 变量 | 说明 | 示例 |
 |------|------|------|
-| `WEBDAV_URL` | WebDAV 服务器地址 | `https://dav.jianguoyun.com/dav/newapi` |
+| `WEBDAV_URL` | WebDAV 服务器地址 | `https://dav.jianguoyun.com/dav/sync` |
 | `WEBDAV_USERNAME` | WebDAV 用户名 | `user@example.com` |
 | `WEBDAV_PASSWORD` | WebDAV 密码/应用密码 | `app-password` |
-| `WEBDAV_FILENAME` | 同步文件名 | `newapi-channels.json` |
+| `WEBDAV_FILENAME` | 同步文件名 | `channels.json` |
 
 ### 云 Redis
 
@@ -342,12 +383,15 @@ DOCKER_REDIS_URL="redis://default:[PASSWORD]@[ENDPOINT].upstash.io:6379"
 | `/api/channel/[id]/sync` | POST | 是 | 同步模型列表 |
 | `/api/channel/import` | POST | 是 | 批量导入渠道 |
 | `/api/channel/export` | GET | 是 | 导出渠道配置 |
-| `/api/channel/webdav` | GET | 是 | 获取 WebDAV 配置状态 |
-| `/api/channel/webdav` | POST | 是 | WebDAV 上传/下载同步 |
+| `/api/channel/webdav` | GET/POST | 是 | WebDAV 同步操作 |
 | `/api/detect` | POST/DELETE | 是 | 触发/停止检测 |
-| `/api/scheduler` | GET/POST | 是 | 调度器管理 |
+| `/api/scheduler` | GET/POST | 是 | 调度器状态管理 |
+| `/api/scheduler/config` | GET/PUT | 是 | 定时任务配置 |
 | `/api/sse/progress` | GET | 否 | SSE 实时进度 |
-| `/api/proxy-key` | GET | 是 | 获取代理密钥 |
+| `/api/proxy-key` | GET | 是 | 获取内置代理密钥 |
+| `/api/proxy-keys` | GET/POST | 是 | 代理密钥列表/创建 |
+| `/api/proxy-keys/[id]` | GET/PUT/DELETE | 是 | 代理密钥详情/修改/删除 |
+| `/api/proxy-keys/[id]/regenerate` | POST | 是 | 重新生成密钥 |
 
 ## Nginx 配置
 
@@ -377,26 +421,32 @@ location / {
 ## 项目结构
 
 ```
-newapi-model-check/
+model-check/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── api/               # 管理 API 路由
+│   │   │   ├── channel/       # 渠道管理 + WebDAV 同步
+│   │   │   ├── proxy-keys/    # 多密钥管理 API
+│   │   │   ├── scheduler/     # 调度器 + 定时任务配置
+│   │   │   └── ...
 │   │   ├── docs/              # 文档页面
 │   │   ├── v1/                # OpenAI/Claude 代理端点
 │   │   └── v1beta/            # Gemini 代理端点
 │   ├── components/            # React 组件
-│   │   ├── dashboard/         # 仪表板
+│   │   ├── dashboard/         # 仪表板（含密钥管理、定时任务配置）
 │   │   ├── layout/           # 布局
-│   │   └── ui/               # UI 组件
+│   │   └── ui/               # UI 组件（含渠道模型选择器）
 │   ├── hooks/                 # React Hooks
 │   └── lib/                   # 核心库
 │       ├── detection/        # 检测策略
 │       ├── proxy/            # 代理工具
 │       ├── queue/            # BullMQ 队列
-│       └── scheduler/        # Cron 调度
+│       ├── scheduler/        # Cron 调度
+│       └── utils/            # 工具函数（含密钥生成）
 ├── prisma/
 │   ├── schema.prisma         # PostgreSQL Schema（默认）
-│   └── schema.mysql.prisma   # MySQL/TiDB Schema
+│   ├── schema.mysql.prisma   # MySQL/TiDB Schema
+│   └── init.postgresql.sql   # 手动初始化 SQL
 ├── docker-compose.yml
 ├── Dockerfile
 └── deploy.sh                  # Linux/macOS 部署脚本
@@ -419,7 +469,7 @@ newapi-model-check/
 
 ```bash
 # 查看日志
-docker logs -f newapi-model-check
+docker logs -f model-check
 
 # 重启服务
 docker compose restart
@@ -447,7 +497,25 @@ npx prisma generate
 
 **Q: 如何修改检测间隔？**
 
-修改 `.env` 中的 `CRON_SCHEDULE`（cron 格式），如每小时：`0 * * * *`
+方式一：修改 `.env` 中的 `CRON_SCHEDULE`（cron 格式），如每小时：`0 * * * *`
+
+方式二：登录管理面板，点击顶部「定时检测设置」按钮，可视化配置检测时间和范围
+
+**Q: 如何创建多个代理密钥？**
+
+登录管理面板后，展开「代理密钥管理」面板，点击「添加」按钮创建新密钥。支持：
+- 自定义密钥名称
+- 自动生成或自定义密钥值
+- 配置权限（所有模型 / 指定渠道 / 指定模型）
+- 启用/禁用密钥
+- 查看使用统计
+
+**Q: 如何配置定时检测范围？**
+
+点击页面顶部的「定时检测设置」按钮，在弹窗中：
+1. 选择「检测范围」为「自定义选择」
+2. 勾选需要检测的渠道和模型
+3. 保存配置
 
 **Q: 如何切换到 TiDB/MySQL？**
 
@@ -462,7 +530,7 @@ docker compose up -d --build
 
 **Q: 代理密钥在哪里获取？**
 
-登录管理面板后访问 `/docs/proxy` 页面，或通过 API `/api/proxy-key` 获取。
+登录管理面板后，展开「代理密钥管理」，点击密钥旁的复制按钮。或访问 `/docs/proxy` 页面查看说明。
 
 **Q: 客户端如何按渠道分组显示模型？**
 

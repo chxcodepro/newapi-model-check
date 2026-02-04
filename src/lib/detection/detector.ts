@@ -26,6 +26,52 @@ export function randomDelay(min: number, max: number): number {
 }
 
 /**
+ * Check if response body contains error indicators
+ * Some API gateways/proxies return HTTP 200 but with error in body
+ */
+function checkResponseBodyForError(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+
+  const obj = body as Record<string, unknown>;
+
+  // Check for common error field patterns
+  // Pattern 1: { error: "message" } or { error: { message: "..." } }
+  if (obj.error) {
+    if (typeof obj.error === "string") {
+      return obj.error;
+    }
+    if (typeof obj.error === "object" && obj.error !== null) {
+      const errObj = obj.error as Record<string, unknown>;
+      if (typeof errObj.message === "string") {
+        return errObj.message;
+      }
+      // Return stringified error object
+      return JSON.stringify(obj.error).slice(0, 500);
+    }
+  }
+
+  // Pattern 2: { success: false, message: "..." }
+  if (obj.success === false && typeof obj.message === "string") {
+    return obj.message;
+  }
+
+  // Pattern 3: { code: non-zero, message: "..." } (common in Chinese APIs)
+  if (typeof obj.code === "number" && obj.code !== 0 && typeof obj.message === "string") {
+    return `[${obj.code}] ${obj.message}`;
+  }
+
+  // Pattern 4: { status: "error", ... }
+  if (obj.status === "error" || obj.status === "fail" || obj.status === "failed") {
+    if (typeof obj.message === "string") {
+      return obj.message;
+    }
+    return `Status: ${obj.status}`;
+  }
+
+  return null;
+}
+
+/**
  * Strip <think>...</think> blocks from response content
  * Many relay/proxy services embed thinking content in the main response
  */
@@ -162,6 +208,29 @@ function extractResponseContent(
         }
         break;
       }
+      case "IMAGE": {
+        // OpenAI Images API format: response.data[].url or response.data[].b64_json
+        const imageData = body.data as {
+          url?: string;
+          b64_json?: string;
+          revised_prompt?: string;
+        }[] | undefined;
+
+        if (Array.isArray(imageData) && imageData.length > 0) {
+          const firstImage = imageData[0];
+          if (firstImage.url) {
+            return `[Image URL: ${firstImage.url.slice(0, 100)}...]`;
+          }
+          if (firstImage.b64_json) {
+            return `[Image generated: base64 data, ${firstImage.b64_json.length} chars]`;
+          }
+          if (firstImage.revised_prompt) {
+            return `[Image generated with prompt: ${firstImage.revised_prompt.slice(0, 100)}]`;
+          }
+          return "[Image generated successfully]";
+        }
+        break;
+      }
     }
   } catch {
     // Ignore parsing errors
@@ -234,11 +303,24 @@ export async function executeDetection(job: DetectionJobData): Promise<Detection
     if (response.ok) {
       // Parse response body to extract content
       let responseContent: string | undefined;
+      let responseBody: unknown;
       try {
-        const responseBody = await response.json();
+        responseBody = await response.json();
         responseContent = extractResponseContent(responseBody, job.endpointType);
       } catch {
         // Ignore JSON parsing errors
+      }
+
+      // Check if response body contains error indicators (some APIs return 200 with error in body)
+      const bodyError = checkResponseBodyForError(responseBody);
+      if (bodyError) {
+        return {
+          status: CheckStatus.FAIL,
+          latency,
+          statusCode: response.status,
+          errorMsg: bodyError,
+          endpointType: job.endpointType,
+        };
       }
 
       return {

@@ -4,7 +4,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { proxyFetch } from "@/lib/utils/proxy-fetch";
-import { getProxyApiKey } from "@/lib/utils/proxy-key";
+import { getProxyApiKey, validateProxyKey, canAccessModel, type ValidateKeyResult } from "@/lib/utils/proxy-key";
+import type { ProxyKey } from "@prisma/client";
 
 // Proxy request timeout (10 minutes for long-running CLI requests)
 const PROXY_TIMEOUT = 600000;
@@ -15,8 +16,13 @@ const GLOBAL_PROXY = process.env.GLOBAL_PROXY;
 // API types for different authentication schemes
 export type ApiType = "openai" | "anthropic" | "gemini";
 
+// Request context with validated key info
+export interface ProxyRequestContext {
+  keyResult: ValidateKeyResult;
+}
+
 /**
- * Verify proxy API key from request
+ * Verify proxy API key from request (legacy sync version)
  * Key is always required (auto-generated if not configured)
  */
 export function verifyProxyKey(request: NextRequest): NextResponse | null {
@@ -47,6 +53,56 @@ export function verifyProxyKey(request: NextRequest): NextResponse | null {
 }
 
 /**
+ * Verify proxy API key from request (async version with multi-key support)
+ * Returns the validated key result for permission checking
+ */
+export async function verifyProxyKeyAsync(request: NextRequest): Promise<{
+  error?: NextResponse;
+  keyResult?: ValidateKeyResult;
+}> {
+  const authHeader = request.headers.get("Authorization");
+  const xApiKey = request.headers.get("x-api-key");
+  const googApiKey = request.headers.get("x-goog-api-key");
+
+  // Accept key from any common header format
+  const apiKey = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : xApiKey || googApiKey;
+
+  if (!apiKey) {
+    return {
+      error: NextResponse.json(
+        {
+          error: {
+            message: "Missing API key",
+            type: "authentication_error",
+          },
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  const keyResult = await validateProxyKey(apiKey);
+
+  if (!keyResult.valid) {
+    return {
+      error: NextResponse.json(
+        {
+          error: {
+            message: "Invalid API key",
+            type: "authentication_error",
+          },
+        },
+        { status: 401 }
+      ),
+    };
+  }
+
+  return { keyResult };
+}
+
+/**
  * Find channel by model name
  * Supports both "modelName" and "channelName/modelName" formats
  * Returns the channel that contains the specified model
@@ -58,6 +114,8 @@ export async function findChannelByModel(modelName: string): Promise<{
   apiKey: string;
   proxy: string | null;
   actualModelName: string;
+  modelId: string;
+  modelStatus: boolean | null;
 } | null> {
   // Parse channel prefix if present (e.g., "渠道名/模型名" -> channelName="渠道名", actualModel="模型名")
   let channelNameFilter: string | undefined;
@@ -99,33 +157,121 @@ export async function findChannelByModel(modelName: string): Promise<{
     apiKey: model.channel.apiKey,
     proxy: model.channel.proxy,
     actualModelName,
+    modelId: model.id,
+    modelStatus: model.lastStatus,
   };
+}
+
+/**
+ * Find channel by model name with permission check
+ * Returns null if the key doesn't have permission to access the model
+ */
+export async function findChannelByModelWithPermission(
+  modelName: string,
+  keyResult: ValidateKeyResult
+): Promise<{
+  channelId: string;
+  channelName: string;
+  baseUrl: string;
+  apiKey: string;
+  proxy: string | null;
+  actualModelName: string;
+  modelId: string;
+  modelStatus: boolean | null;
+} | null> {
+  const channel = await findChannelByModel(modelName);
+
+  if (!channel) {
+    return null;
+  }
+
+  // Check permission
+  const hasPermission = await canAccessModel(
+    keyResult.keyRecord,
+    keyResult.isEnvKey,
+    channel.channelId,
+    channel.modelId,
+    channel.modelStatus
+  );
+
+  if (!hasPermission) {
+    return null;
+  }
+
+  return channel;
 }
 
 /**
  * Get all available models from all enabled channels
  * Only returns models that have been successfully tested (at least one endpoint SUCCESS)
  */
-export async function getAllModelsWithChannels(): Promise<
+export async function getAllModelsWithChannels(keyResult?: ValidateKeyResult): Promise<
   Array<{
     id: string;
     modelName: string;
     channelName: string;
+    channelId: string;
   }>
 > {
-  const models = await prisma.model.findMany({
-    where: {
-      channel: { enabled: true },
-      // Only include models that have at least one successful check log
-      checkLogs: {
-        some: {
-          status: "SUCCESS",
-        },
+  // Build where clause based on key permissions
+  let whereClause: {
+    channel: { enabled: boolean };
+    checkLogs?: { some: { status: "SUCCESS" } };
+    channelId?: { in: string[] };
+    id?: { in: string[] };
+  } = {
+    channel: { enabled: true },
+    // Only include models that have at least one successful check log
+    checkLogs: {
+      some: {
+        status: "SUCCESS",
       },
     },
+  };
+
+  // If key has restricted permissions, filter by allowed channels/models
+  if (keyResult?.keyRecord && !keyResult.keyRecord.allowAllModels) {
+    const allowedChannelIds = keyResult.keyRecord.allowedChannelIds as string[] | null;
+    const allowedModelIds = keyResult.keyRecord.allowedModelIds as string[] | null;
+
+    const hasChannelPerms = allowedChannelIds !== null && allowedChannelIds.length > 0;
+    const hasModelPerms = allowedModelIds !== null && allowedModelIds.length > 0;
+
+    // If no explicit permissions configured, return empty (deny all)
+    if (!hasChannelPerms && !hasModelPerms) {
+      return [];
+    }
+
+    // Build OR condition: channel match OR model match
+    if (hasChannelPerms && hasModelPerms) {
+      // Need to use Prisma OR logic - but findMany doesn't support top-level OR easily
+      // So we'll filter by channelId OR modelId using two queries and merge
+      // For simplicity, we use channelId filter first, then add model filter
+      whereClause = {
+        ...whereClause,
+        OR: [
+          { channelId: { in: allowedChannelIds } },
+          { id: { in: allowedModelIds } },
+        ],
+      } as typeof whereClause;
+    } else if (hasChannelPerms) {
+      whereClause = {
+        ...whereClause,
+        channelId: { in: allowedChannelIds },
+      };
+    } else if (hasModelPerms) {
+      whereClause = {
+        ...whereClause,
+        id: { in: allowedModelIds },
+      };
+    }
+  }
+
+  const models = await prisma.model.findMany({
+    where: whereClause,
     include: {
       channel: {
-        select: { name: true },
+        select: { id: true, name: true },
       },
     },
     orderBy: [
@@ -138,6 +284,7 @@ export async function getAllModelsWithChannels(): Promise<
     id: m.id,
     modelName: m.modelName,
     channelName: m.channel.name,
+    channelId: m.channel.id,
   }));
 }
 

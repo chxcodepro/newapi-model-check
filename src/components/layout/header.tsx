@@ -4,10 +4,11 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Sun, Moon, LogIn, LogOut, Activity, Play, Square, Loader2, Wifi, WifiOff, Clock, Zap, Timer, Search, Filter, X, Github, FileText } from "lucide-react";
+import { Sun, Moon, LogIn, LogOut, Activity, Play, Square, Loader2, Wifi, WifiOff, Clock, Zap, Timer, Search, Filter, X, Github, FileText, Settings } from "lucide-react";
 import { useTheme } from "@/components/providers/theme-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useToast } from "@/components/ui/toast";
+import { SchedulerModal } from "@/components/dashboard/scheduler-modal";
 import { cn } from "@/lib/utils";
 
 // Filter types
@@ -67,6 +68,7 @@ export function Header({
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [countdown, setCountdown] = useState<string>("-");
+  const [showSchedulerModal, setShowSchedulerModal] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
 
   // Close filter panel when clicking outside
@@ -85,22 +87,29 @@ export function Header({
 
   // Fetch scheduler status
   useEffect(() => {
+    let isMounted = true;
+
     const fetchSchedulerStatus = async () => {
       try {
         const response = await fetch("/api/scheduler");
-        if (response.ok) {
+        if (response.ok && isMounted) {
           const data = await response.json();
           setSchedulerStatus(data);
         }
       } catch (error) {
-        console.error("Failed to fetch scheduler status:", error);
+        if (isMounted) {
+          console.error("Failed to fetch scheduler status:", error);
+        }
       }
     };
 
     fetchSchedulerStatus();
     // Refresh every minute
     const interval = setInterval(fetchSchedulerStatus, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Real-time countdown timer
@@ -223,12 +232,13 @@ export function Header({
   const activeFilterCount = [search, endpointFilter !== "all", statusFilter !== "all"].filter(Boolean).length;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <>
+      <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-14 items-center justify-between px-2 sm:px-4 gap-1 sm:gap-2">
         {/* Logo - compact on mobile */}
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <Activity className="h-5 w-5 text-primary" />
-          <span className="font-semibold hidden sm:inline">NewAPI 监控</span>
+          <span className="font-semibold hidden sm:inline">模型检测</span>
           <Link
             href="/docs/proxy"
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors hidden sm:block"
@@ -237,7 +247,7 @@ export function Header({
             <FileText className="h-4 w-4" />
           </Link>
           <a
-            href="https://github.com/chxcodepro/newapi-model-check"
+            href="https://github.com/chxcodepro/model-check"
             target="_blank"
             rel="noopener noreferrer"
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors hidden sm:block"
@@ -247,24 +257,29 @@ export function Header({
           </a>
         </div>
 
-        {/* Scheduler Info - Desktop: full info, Mobile: countdown only */}
-        <div className="flex items-center gap-1 sm:gap-3 text-xs text-muted-foreground">
-          {/* Next detection time - always visible */}
-          <div
-            className={cn(
-              "flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded",
-              schedulerStatus?.detection.enabled === false ? "bg-red-500/10" : "bg-muted/50"
-            )}
-            title={schedulerStatus?.detection.enabled === false ? "自动检测已禁用" : "下次自动检测"}
-          >
+        {/* Scheduler Info - clickable group */}
+        <button
+          type="button"
+          onClick={() => isAuthenticated && setShowSchedulerModal(true)}
+          className={cn(
+            "flex items-center gap-1 sm:gap-2 text-xs rounded-md border transition-colors",
+            schedulerStatus?.detection.enabled === false
+              ? "border-red-500/30 bg-red-500/10"
+              : "border-border bg-muted/50",
+            isAuthenticated && "hover:bg-accent hover:border-primary/50 cursor-pointer"
+          )}
+          title={isAuthenticated ? "点击配置定时检测" : "定时检测状态"}
+        >
+          {/* Next detection time */}
+          <div className={cn(
+            "flex items-center gap-1 px-2 py-1.5",
+            schedulerStatus?.detection.enabled === false ? "text-red-500" : "text-muted-foreground"
+          )}>
             <Clock className={cn(
-              "h-3 w-3",
+              "h-3.5 w-3.5",
               schedulerStatus?.detection.enabled === false ? "text-red-500" : "text-blue-500"
             )} />
-            <span className={cn(
-              "font-medium text-[10px] sm:text-xs",
-              schedulerStatus?.detection.enabled === false ? "text-red-500" : "text-foreground"
-            )}>
+            <span className="font-medium text-foreground text-[11px] sm:text-xs">
               {schedulerStatus
                 ? schedulerStatus.detection.enabled
                   ? countdown
@@ -273,18 +288,31 @@ export function Header({
             </span>
           </div>
 
-          {/* Concurrency - desktop only */}
-          <div className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-muted/50" title="并发数">
-            <Zap className="h-3 w-3 text-yellow-500" />
-            <span className="font-medium text-foreground">{WORKER_CONCURRENCY}</span>
+          {/* Divider */}
+          <div className="hidden sm:block w-px h-4 bg-border" />
+
+          {/* Concurrency */}
+          <div className="hidden sm:flex items-center gap-1 px-2 py-1.5" title="并发数">
+            <Zap className="h-3.5 w-3.5 text-yellow-500" />
+            <span className="font-medium text-foreground text-xs">{WORKER_CONCURRENCY}</span>
           </div>
 
-          {/* Interval - desktop only */}
-          <div className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-muted/50" title="检测间隔">
-            <Timer className="h-3 w-3 text-green-500" />
-            <span className="font-medium text-foreground">{MIN_DELAY_MS/1000}-{MAX_DELAY_MS/1000}s</span>
+          {/* Divider */}
+          <div className="hidden lg:block w-px h-4 bg-border" />
+
+          {/* Interval */}
+          <div className="hidden lg:flex items-center gap-1 px-2 py-1.5" title="检测间隔">
+            <Timer className="h-3.5 w-3.5 text-green-500" />
+            <span className="font-medium text-foreground text-xs">{MIN_DELAY_MS/1000}-{MAX_DELAY_MS/1000}s</span>
           </div>
-        </div>
+
+          {/* Settings icon for authenticated users */}
+          {isAuthenticated && (
+            <div className="pr-2">
+              <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+          )}
+        </button>
 
         {/* Actions - compact layout */}
         <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
@@ -476,5 +504,12 @@ export function Header({
         </div>
       </div>
     </header>
+
+    {/* Scheduler Modal - outside header to avoid sticky positioning issues */}
+    <SchedulerModal
+      isOpen={showSchedulerModal}
+      onClose={() => setShowSchedulerModal(false)}
+    />
+    </>
   );
 }

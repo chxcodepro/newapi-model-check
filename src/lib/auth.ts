@@ -3,7 +3,7 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
-const JWT_SECRET = process.env.JWT_SECRET || "newapi-monitor-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET || "model-check-secret-key";
 const JWT_EXPIRES_IN = "7d";
 
 export interface JWTPayload {

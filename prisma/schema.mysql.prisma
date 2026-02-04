@@ -71,9 +71,45 @@ enum EndpointType {
   CLAUDE
   GEMINI
   CODEX
+  IMAGE
 }
 
 enum CheckStatus {
   SUCCESS
   FAIL
+}
+
+// SchedulerConfig - Singleton configuration for detection scheduler
+model SchedulerConfig {
+  id                    String   @id @default("default")
+  enabled               Boolean  @default(true)
+  cronSchedule          String   @default("0 0,8,12,16,20 * * *") @map("cron_schedule") @db.VarChar(100)
+  timezone              String   @default("Asia/Shanghai") @db.VarChar(50)
+  channelConcurrency    Int      @default(5) @map("channel_concurrency")
+  maxGlobalConcurrency  Int      @default(30) @map("max_global_concurrency")
+  minDelayMs            Int      @default(3000) @map("min_delay_ms")
+  maxDelayMs            Int      @default(5000) @map("max_delay_ms")
+  detectAllChannels     Boolean  @default(true) @map("detect_all_channels")
+  selectedChannelIds    Json?    @map("selected_channel_ids")
+  selectedModelIds      Json?    @map("selected_model_ids")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("scheduler_config")
+}
+
+// ProxyKey - API keys for proxy access with permissions
+model ProxyKey {
+  id                String    @id @default(cuid())
+  name              String    @db.VarChar(100)
+  key               String    @unique @db.VarChar(100)
+  enabled           Boolean   @default(true)
+  allowAllModels    Boolean   @default(true) @map("allow_all_models")
+  allowedChannelIds Json?     @map("allowed_channel_ids")
+  allowedModelIds   Json?     @map("allowed_model_ids")
+  lastUsedAt        DateTime? @map("last_used_at")
+  usageCount        Int       @default(0) @map("usage_count")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("proxy_keys")
 }
