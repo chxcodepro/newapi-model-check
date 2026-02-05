@@ -24,11 +24,14 @@ API 渠道模型可用性检测工具，支持多渠道管理、自动检测、�
 git clone https://github.com/chxcodepro/model-check.git
 cd model-check
 
+# 赋予一键部署脚本执行权限
+
+
 # 一键部署（全本地模式）
-./deploy.sh --local
+chmod +x deploy.sh && ./deploy.sh --local
 
 # 或使用云数据库
-./deploy.sh --cloud-db
+chmod +x deploy.sh && ./deploy.sh --cloud-db
 ```
 
 ### 部署模式
