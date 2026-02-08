@@ -132,7 +132,7 @@ export default function Home() {
   useEffect(() => {
     if (isDetectionRunning && testingModelIds.size === 0) {
       // Double-check with server to confirm detection is complete
-      fetchProgress();
+      void Promise.resolve().then(fetchProgress);
     }
   }, [testingModelIds.size, isDetectionRunning, fetchProgress]);
 
@@ -149,7 +149,7 @@ export default function Home() {
 
   // Fetch initial detection progress on page load
   useEffect(() => {
-    fetchProgress();
+    void Promise.resolve().then(fetchProgress);
   }, [fetchProgress]);
 
   // Poll for testing status when detection is running AND SSE is not connected

@@ -9,18 +9,107 @@ import { DETECTION_QUEUE_NAME, PROGRESS_CHANNEL } from "./constants";
 
 // Worker configuration (from environment variables)
 const WORKER_CONCURRENCY = 50; // BullMQ worker pool size (should be >= MAX_GLOBAL_CONCURRENCY)
-const CHANNEL_CONCURRENCY = parseInt(process.env.CHANNEL_CONCURRENCY || "5", 10);
-const MAX_GLOBAL_CONCURRENCY = parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10);
-const MIN_DELAY_MS = parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10);
-const MAX_DELAY_MS = parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10);
 const SEMAPHORE_POLL_MS = 500; // Poll interval when waiting for slot
 const SEMAPHORE_TTL = 120; // TTL in seconds for semaphore keys (auto-cleanup)
+const CONFIG_CACHE_TTL_MS = 5000;
+
+interface WorkerRuntimeConfig {
+  channelConcurrency: number;
+  maxGlobalConcurrency: number;
+  minDelayMs: number;
+  maxDelayMs: number;
+}
+
+const DEFAULT_WORKER_CONFIG: WorkerRuntimeConfig = {
+  channelConcurrency: parseInt(process.env.CHANNEL_CONCURRENCY || "5", 10),
+  maxGlobalConcurrency: parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10),
+  minDelayMs: parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10),
+  maxDelayMs: parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10),
+};
+
+let cachedConfig: WorkerRuntimeConfig | null = null;
+let cachedAt = 0;
+let loadingConfigPromise: Promise<WorkerRuntimeConfig> | null = null;
 
 // Redis keys
 const GLOBAL_SEMAPHORE_KEY = "detection:semaphore:global";
 
 // Worker instance
 let worker: Worker<DetectionJobData, DetectionResult> | null = null;
+
+function parsePositiveInt(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  const parsed = Math.floor(value);
+  return parsed > 0 ? parsed : fallback;
+}
+
+function parseNonNegativeInt(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  const parsed = Math.floor(value);
+  return parsed >= 0 ? parsed : fallback;
+}
+
+function normalizeConfig(config: Partial<WorkerRuntimeConfig>): WorkerRuntimeConfig {
+  const minDelayMs = parseNonNegativeInt(config.minDelayMs, DEFAULT_WORKER_CONFIG.minDelayMs);
+  const maxDelayMsRaw = parseNonNegativeInt(config.maxDelayMs, DEFAULT_WORKER_CONFIG.maxDelayMs);
+  const maxDelayMs = Math.max(maxDelayMsRaw, minDelayMs);
+
+  return {
+    channelConcurrency: parsePositiveInt(config.channelConcurrency, DEFAULT_WORKER_CONFIG.channelConcurrency),
+    maxGlobalConcurrency: parsePositiveInt(config.maxGlobalConcurrency, DEFAULT_WORKER_CONFIG.maxGlobalConcurrency),
+    minDelayMs,
+    maxDelayMs,
+  };
+}
+
+async function loadWorkerConfig(): Promise<WorkerRuntimeConfig> {
+  const now = Date.now();
+  if (cachedConfig && now - cachedAt < CONFIG_CACHE_TTL_MS) {
+    return cachedConfig;
+  }
+
+  if (!loadingConfigPromise) {
+    loadingConfigPromise = (async () => {
+      try {
+        const dbConfig = await prisma.schedulerConfig.findUnique({
+          where: { id: "default" },
+          select: {
+            channelConcurrency: true,
+            maxGlobalConcurrency: true,
+            minDelayMs: true,
+            maxDelayMs: true,
+          },
+        });
+
+        const resolvedConfig = dbConfig
+          ? normalizeConfig(dbConfig)
+          : normalizeConfig(DEFAULT_WORKER_CONFIG);
+
+        cachedConfig = resolvedConfig;
+        cachedAt = Date.now();
+        return resolvedConfig;
+      } catch {
+        const fallbackConfig = cachedConfig ?? normalizeConfig(DEFAULT_WORKER_CONFIG);
+        cachedConfig = fallbackConfig;
+        cachedAt = Date.now();
+        return fallbackConfig;
+      } finally {
+        loadingConfigPromise = null;
+      }
+    })();
+  }
+
+  return loadingConfigPromise;
+}
+
+export function reloadWorkerConfig(): void {
+  cachedConfig = null;
+  cachedAt = 0;
+}
 
 /**
  * Redis-based semaphore for concurrency control
@@ -29,15 +118,14 @@ function channelSemaphoreKey(channelId: string): string {
   return `detection:semaphore:channel:${channelId}`;
 }
 
-async function acquireSlots(channelId: string): Promise<void> {
+async function acquireSlots(channelId: string, config: WorkerRuntimeConfig): Promise<void> {
   const channelKey = channelSemaphoreKey(channelId);
 
   // Must acquire both global and channel slots
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     // Try global slot first
     const globalCount = await redis.incr(GLOBAL_SEMAPHORE_KEY);
-    if (globalCount > MAX_GLOBAL_CONCURRENCY) {
+    if (globalCount > config.maxGlobalConcurrency) {
       await redis.decr(GLOBAL_SEMAPHORE_KEY);
       await sleep(SEMAPHORE_POLL_MS);
       continue;
@@ -46,7 +134,7 @@ async function acquireSlots(channelId: string): Promise<void> {
 
     // Try channel slot
     const channelCount = await redis.incr(channelKey);
-    if (channelCount > CHANNEL_CONCURRENCY) {
+    if (channelCount > config.channelConcurrency) {
       // Release channel slot and global slot, then wait
       await redis.decr(channelKey);
       await redis.decr(GLOBAL_SEMAPHORE_KEY);
@@ -91,6 +179,7 @@ async function processDetectionJob(
   job: Job<DetectionJobData, DetectionResult>
 ): Promise<DetectionResult> {
   const { data } = job;
+  const runtimeConfig = await loadWorkerConfig();
 
   // Check if detection has been stopped before processing
   const { isDetectionStopped } = await import("./queue");
@@ -104,7 +193,7 @@ async function processDetectionJob(
   }
 
   // Acquire concurrency slots (both global and per-channel)
-  await acquireSlots(data.channelId);
+  await acquireSlots(data.channelId, runtimeConfig);
 
   try {
     // Check again after acquiring slot (in case stop was triggered during wait)
@@ -118,7 +207,7 @@ async function processDetectionJob(
     }
 
     // Anti-blocking delay (3-5 seconds random)
-    const delay = randomDelay(MIN_DELAY_MS, MAX_DELAY_MS);
+    const delay = randomDelay(runtimeConfig.minDelayMs, runtimeConfig.maxDelayMs);
     await sleep(delay);
 
     // Execute the actual detection

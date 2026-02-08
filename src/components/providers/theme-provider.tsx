@@ -2,7 +2,7 @@
 
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 
 type Theme = "light" | "dark" | "system";
 
@@ -15,34 +15,31 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("system");
-  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">("light");
-
-  useEffect(() => {
-    // Load theme from localStorage
-    const stored = localStorage.getItem("theme") as Theme | null;
-    if (stored) {
-      setTheme(stored);
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") {
+      return "system";
     }
-  }, []);
+    const stored = localStorage.getItem("theme") as Theme | null;
+    return stored ?? "system";
+  });
+
+  const resolvedTheme = useMemo<"light" | "dark">(() => {
+    if (typeof window === "undefined") {
+      return "light";
+    }
+    if (theme === "system") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    return theme;
+  }, [theme]);
 
   useEffect(() => {
     // Save theme to localStorage
     localStorage.setItem("theme", theme);
 
-    // Resolve theme
-    let resolved: "light" | "dark";
-    if (theme === "system") {
-      resolved = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    } else {
-      resolved = theme;
-    }
-
-    setResolvedTheme(resolved);
-
     // Apply theme class
-    document.documentElement.classList.toggle("dark", resolved === "dark");
-  }, [theme]);
+    document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
+  }, [theme, resolvedTheme]);
 
   // Listen for system theme changes
   useEffect(() => {
@@ -50,7 +47,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = (e: MediaQueryListEvent) => {
-      setResolvedTheme(e.matches ? "dark" : "light");
       document.documentElement.classList.toggle("dark", e.matches);
     };
 

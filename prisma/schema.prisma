@@ -1,6 +1,3 @@
-// Prisma Schema for Model-Check
-// Database: PostgreSQL (Supabase, Neon, local Docker)
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,105 +7,97 @@ datasource db {
   provider = "postgresql"
 }
 
-// Channel - API provider configuration
 model Channel {
   id        String   @id @default(cuid())
   name      String   @db.VarChar(100)
   baseUrl   String   @map("base_url") @db.VarChar(500)
-  apiKey    String   @map("api_key") @db.Text
+  apiKey    String   @map("api_key")
   proxy     String?  @db.VarChar(500)
   enabled   Boolean  @default(true)
+  sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   models    Model[]
 
   @@map("channels")
 }
 
-// Model - Individual model within a channel
 model Model {
-  id                 String   @id @default(cuid())
-  channelId          String   @map("channel_id")
-  modelName          String   @map("model_name") @db.VarChar(200)
-  detectedEndpoints  String[] @default([]) @map("detected_endpoints") // Array of supported endpoint types
-  lastStatus         Boolean? @map("last_status")
-  lastLatency        Int?     @map("last_latency") // in milliseconds
-  lastCheckedAt      DateTime? @map("last_checked_at")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-
-  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  checkLogs CheckLog[]
+  id                String     @id @default(cuid())
+  channelId         String     @map("channel_id")
+  modelName         String     @map("model_name") @db.VarChar(200)
+  detectedEndpoints String[]   @default([]) @map("detected_endpoints")
+  lastStatus        Boolean?   @map("last_status")
+  lastLatency       Int?       @map("last_latency")
+  lastCheckedAt     DateTime?  @map("last_checked_at")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @default(now()) @updatedAt @map("updated_at")
+  checkLogs         CheckLog[]
+  channel           Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
   @@unique([channelId, modelName])
   @@map("models")
 }
 
-// CheckLog - Detection history
 model CheckLog {
   id              String       @id @default(cuid())
   modelId         String       @map("model_id")
   endpointType    EndpointType @map("endpoint_type")
   status          CheckStatus
-  latency         Int?         // in milliseconds
+  latency         Int?
   statusCode      Int?         @map("status_code")
-  errorMsg        String?      @map("error_msg") @db.Text
-  responseContent String?      @map("response_content") @db.Text
+  errorMsg        String?      @map("error_msg")
+  responseContent String?      @map("response_content")
   createdAt       DateTime     @default(now()) @map("created_at")
-
-  model        Model        @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  model           Model        @relation(fields: [modelId], references: [id], onDelete: Cascade)
 
   @@index([modelId, createdAt])
   @@index([createdAt])
   @@map("check_logs")
 }
 
-// Enums
-enum EndpointType {
-  CHAT      // /v1/chat/completions (OpenAI compatible)
-  CLAUDE    // /v1/messages (Claude format)
-  GEMINI    // /v1beta/models/{model}:generateContent
-  CODEX     // /v1/responses
-  IMAGE     // /v1/images/generations (DALL-E, etc.)
-}
-
-enum CheckStatus {
-  SUCCESS
-  FAIL
-}
-
-// SchedulerConfig - Singleton configuration for detection scheduler
 model SchedulerConfig {
-  id                    String   @id @default("default")
-  enabled               Boolean  @default(true)
-  cronSchedule          String   @default("0 0,8,12,16,20 * * *") @map("cron_schedule")
-  timezone              String   @default("Asia/Shanghai")
-  channelConcurrency    Int      @default(5) @map("channel_concurrency")
-  maxGlobalConcurrency  Int      @default(30) @map("max_global_concurrency")
-  minDelayMs            Int      @default(3000) @map("min_delay_ms")
-  maxDelayMs            Int      @default(5000) @map("max_delay_ms")
-  detectAllChannels     Boolean  @default(false) @map("detect_all_channels")
-  selectedChannelIds    Json?    @map("selected_channel_ids")  // string[]
-  selectedModelIds      Json?    @map("selected_model_ids")    // Record<channelId, modelId[]>
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  id                   String   @id @default("default")
+  enabled              Boolean  @default(true)
+  cronSchedule         String   @default("0 0,8,12,16,20 * * *") @map("cron_schedule") @db.VarChar(100)
+  timezone             String   @default("Asia/Shanghai") @db.VarChar(50)
+  channelConcurrency   Int      @default(5) @map("channel_concurrency")
+  maxGlobalConcurrency Int      @default(30) @map("max_global_concurrency")
+  minDelayMs           Int      @default(3000) @map("min_delay_ms")
+  maxDelayMs           Int      @default(5000) @map("max_delay_ms")
+  detectAllChannels    Boolean  @default(true) @map("detect_all_channels")
+  selectedChannelIds   Json?    @map("selected_channel_ids")
+  selectedModelIds     Json?    @map("selected_model_ids")
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("scheduler_config")
 }
 
-// ProxyKey - API keys for proxy access with permissions
 model ProxyKey {
   id                String    @id @default(cuid())
   name              String    @db.VarChar(100)
   key               String    @unique @db.VarChar(100)
   enabled           Boolean   @default(true)
   allowAllModels    Boolean   @default(true) @map("allow_all_models")
-  allowedChannelIds Json?     @map("allowed_channel_ids")  // string[]
-  allowedModelIds   Json?     @map("allowed_model_ids")    // string[]
+  allowedChannelIds Json?     @map("allowed_channel_ids")
+  allowedModelIds   Json?     @map("allowed_model_ids")
   lastUsedAt        DateTime? @map("last_used_at")
   usageCount        Int       @default(0) @map("usage_count")
   createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@map("proxy_keys")
+}
+
+enum EndpointType {
+  CHAT
+  CLAUDE
+  GEMINI
+  CODEX
+  IMAGE
+}
+
+enum CheckStatus {
+  SUCCESS
+  FAIL
 }

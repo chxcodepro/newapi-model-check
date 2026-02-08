@@ -16,7 +16,10 @@ export async function GET(request: NextRequest) {
           select: { models: true },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [
+        { sortOrder: "asc" },
+        { createdAt: "desc" },
+      ],
     });
 
     // Mask API keys for security
@@ -51,15 +54,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create channel
-    const channel = await prisma.channel.create({
-      data: {
-        name,
-        baseUrl: baseUrl.replace(/\/$/, ""), // Remove trailing slash
-        apiKey,
-        proxy: proxy || null,
-        enabled: true,
-      },
+    // Create channel at first position (new channel appears as list item #1)
+    const channel = await prisma.$transaction(async (tx) => {
+      const minSort = await tx.channel.aggregate({
+        _min: { sortOrder: true },
+      });
+
+      const nextSortOrder = (minSort._min.sortOrder ?? 0) - 1;
+
+      return tx.channel.create({
+        data: {
+          name,
+          baseUrl: baseUrl.replace(/\/$/, ""), // Remove trailing slash
+          apiKey,
+          proxy: proxy || null,
+          enabled: true,
+          sortOrder: nextSortOrder,
+        },
+      });
     });
 
     // If models are provided, create them with empty detectedEndpoints (will be populated after testing)
@@ -95,7 +107,23 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { id, name, baseUrl, apiKey, proxy, enabled } = body;
+    const { id, name, baseUrl, apiKey, proxy, enabled, orders } = body;
+
+    // Batch update channel sort order
+    if (Array.isArray(orders)) {
+      await prisma.$transaction(
+        orders
+          .filter((item) => item && typeof item.id === "string" && typeof item.sortOrder === "number")
+          .map((item) =>
+            prisma.channel.update({
+              where: { id: item.id },
+              data: { sortOrder: Math.floor(item.sortOrder) },
+            })
+          )
+      );
+
+      return NextResponse.json({ success: true });
+    }
 
     if (!id) {
       return NextResponse.json(

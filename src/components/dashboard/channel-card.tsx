@@ -347,7 +347,7 @@ export function ChannelCard({ channel, onRefresh, onDelete, className, onEndpoin
       className={cn(
         "rounded-lg border overflow-hidden transition-all duration-300",
         isChannelTesting
-          ? "border-2 border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-900/20 shadow-lg shadow-blue-200/50 dark:shadow-blue-900/30 animate-pulse"
+          ? "border-2 border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-900/20 shadow-lg shadow-blue-200/50 dark:shadow-blue-900/30"
           : isAllUnhealthy
             ? "border-dashed border-red-400 dark:border-red-500 bg-red-50/30 dark:bg-red-900/10"
             : "border-border bg-card hover:shadow-md",

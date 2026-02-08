@@ -29,16 +29,96 @@ interface SchedulerModalProps {
   onSave?: () => void;
 }
 
-// Common cron presets
-const CRON_PRESETS = [
-  { label: "每6小时", value: "0 */6 * * *" },
-  { label: "每4小时", value: "0 */4 * * *" },
-  { label: "每天5次 (0,8,12,16,20点)", value: "0 0,8,12,16,20 * * *" },
-  { label: "每天3次 (8,14,20点)", value: "0 8,14,20 * * *" },
-  { label: "每天2次 (8,20点)", value: "0 8,20 * * *" },
-  { label: "每天1次 (8点)", value: "0 8 * * *" },
-  { label: "自定义", value: "custom" },
+type ScheduleMode = "every_30_minutes" | "hourly" | "daily" | "weekly";
+
+const SCHEDULE_OPTIONS: Array<{ label: string; value: ScheduleMode }> = [
+  { label: "每30分钟", value: "every_30_minutes" },
+  { label: "每小时", value: "hourly" },
+  { label: "每天一次（可选时间）", value: "daily" },
+  { label: "每周一次（可选星期+时间）", value: "weekly" },
 ];
+
+const WEEKDAY_OPTIONS = [
+  { label: "周日", value: "0" },
+  { label: "周一", value: "1" },
+  { label: "周二", value: "2" },
+  { label: "周三", value: "3" },
+  { label: "周四", value: "4" },
+  { label: "周五", value: "5" },
+  { label: "周六", value: "6" },
+];
+
+interface ParsedSchedule {
+  mode: ScheduleMode;
+  dailyTime: string;
+  weeklyDay: string;
+  weeklyTime: string;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function parseCronToHumanSchedule(cronSchedule: string): ParsedSchedule {
+  const trimmed = cronSchedule.trim();
+
+  if (trimmed === "*/30 * * * *") {
+    return { mode: "every_30_minutes", dailyTime: "09:00", weeklyDay: "1", weeklyTime: "09:00" };
+  }
+
+  if (trimmed === "0 * * * *") {
+    return { mode: "hourly", dailyTime: "09:00", weeklyDay: "1", weeklyTime: "09:00" };
+  }
+
+  const dailyMatch = trimmed.match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
+  if (dailyMatch) {
+    const minute = Number(dailyMatch[1]);
+    const hour = Number(dailyMatch[2]);
+    return {
+      mode: "daily",
+      dailyTime: `${pad2(hour)}:${pad2(minute)}`,
+      weeklyDay: "1",
+      weeklyTime: `${pad2(hour)}:${pad2(minute)}`,
+    };
+  }
+
+  const weeklyMatch = trimmed.match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+([0-6])$/);
+  if (weeklyMatch) {
+    const minute = Number(weeklyMatch[1]);
+    const hour = Number(weeklyMatch[2]);
+    const weekday = weeklyMatch[3];
+    return {
+      mode: "weekly",
+      dailyTime: `${pad2(hour)}:${pad2(minute)}`,
+      weeklyDay: weekday,
+      weeklyTime: `${pad2(hour)}:${pad2(minute)}`,
+    };
+  }
+
+  return { mode: "hourly", dailyTime: "09:00", weeklyDay: "1", weeklyTime: "09:00" };
+}
+
+function buildCronFromHumanSchedule(
+  mode: ScheduleMode,
+  dailyTime: string,
+  weeklyDay: string,
+  weeklyTime: string
+): string {
+  if (mode === "every_30_minutes") return "*/30 * * * *";
+  if (mode === "hourly") return "0 * * * *";
+
+  if (mode === "daily") {
+    const [hourStr = "9", minuteStr = "0"] = dailyTime.split(":");
+    const hour = Number(hourStr);
+    const minute = Number(minuteStr);
+    return `${minute} ${hour} * * *`;
+  }
+
+  const [hourStr = "9", minuteStr = "0"] = weeklyTime.split(":");
+  const hour = Number(hourStr);
+  const minute = Number(minuteStr);
+  return `${minute} ${hour} * * ${weeklyDay}`;
+}
 
 export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps) {
   const { token } = useAuth();
@@ -52,8 +132,10 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
 
   // Form state
   const [enabled, setEnabled] = useState(true);
-  const [cronPreset, setCronPreset] = useState("0 0,8,12,16,20 * * *");
-  const [customCron, setCustomCron] = useState("");
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("hourly");
+  const [dailyTime, setDailyTime] = useState("09:00");
+  const [weeklyDay, setWeeklyDay] = useState("1");
+  const [weeklyTime, setWeeklyTime] = useState("09:00");
   const [channelConcurrency, setChannelConcurrency] = useState(5);
   const [maxGlobalConcurrency, setMaxGlobalConcurrency] = useState(30);
   const [minDelayMs, setMinDelayMs] = useState(3000);
@@ -89,13 +171,11 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
 
         // Initialize form state
         setEnabled(data.config.enabled);
-        const matchingPreset = CRON_PRESETS.find((p) => p.value === data.config.cronSchedule);
-        if (matchingPreset && matchingPreset.value !== "custom") {
-          setCronPreset(matchingPreset.value);
-        } else {
-          setCronPreset("custom");
-          setCustomCron(data.config.cronSchedule);
-        }
+        const parsedSchedule = parseCronToHumanSchedule(data.config.cronSchedule);
+        setScheduleMode(parsedSchedule.mode);
+        setDailyTime(parsedSchedule.dailyTime);
+        setWeeklyDay(parsedSchedule.weeklyDay);
+        setWeeklyTime(parsedSchedule.weeklyTime);
         setChannelConcurrency(data.config.channelConcurrency);
         setMaxGlobalConcurrency(data.config.maxGlobalConcurrency);
         setMinDelayMs(data.config.minDelayMs);
@@ -136,13 +216,22 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
 
     setSaving(true);
     try {
-      const cronSchedule = cronPreset === "custom" ? customCron : cronPreset;
+      const cronSchedule = buildCronFromHumanSchedule(scheduleMode, dailyTime, weeklyDay, weeklyTime);
+      const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
       // Check if all channels and all their models are selected
       const isAllSelected = channels.length > 0 && channels.every((channel) => {
         const selected = selectedModelIds[channel.id] || [];
-        return channel.models.length > 0 && selected.length === channel.models.length;
+        return selected.length === channel.models.length;
       });
+
+      // If no channel selected, auto-disable scheduler
+      const hasSelectedChannels = selectedChannelIds.length > 0;
+      const finalEnabled = hasSelectedChannels ? enabled : false;
+
+      if (!hasSelectedChannels && enabled) {
+        toast("未选择检测范围，已自动关闭定时检测", "warning");
+      }
 
       const response = await fetch("/api/scheduler/config", {
         method: "PUT",
@@ -151,8 +240,9 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          enabled,
+          enabled: finalEnabled,
           cronSchedule,
+          timezone: localTimezone,
           channelConcurrency,
           maxGlobalConcurrency,
           minDelayMs,
@@ -259,35 +349,62 @@ export function SchedulerModal({ isOpen, onClose, onSave }: SchedulerModalProps)
             <div>
               <label className="block text-sm font-medium mb-1.5">执行时间</label>
               <select
-                value={cronPreset}
-                onChange={(e) => {
-                  setCronPreset(e.target.value);
-                  if (e.target.value !== "custom") {
-                    setCustomCron("");
-                  }
-                }}
+                value={scheduleMode}
+                onChange={(e) => setScheduleMode(e.target.value as ScheduleMode)}
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
               >
-                {CRON_PRESETS.map((preset) => (
-                  <option key={preset.value} value={preset.value}>
-                    {preset.label}
+                {SCHEDULE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
-              {cronPreset === "custom" && (
-                <input
-                  type="text"
-                  value={customCron}
-                  onChange={(e) => setCustomCron(e.target.value)}
-                  placeholder="0 */6 * * *"
-                  className="w-full mt-2 px-3 py-2 rounded-md border border-input bg-background text-sm font-mono"
-                />
+              {scheduleMode === "daily" && (
+                <div className="mt-2">
+                  <label className="block text-xs text-muted-foreground mb-1">每天几点执行</label>
+                  <input
+                    type="time"
+                    value={dailyTime}
+                    onChange={(e) => setDailyTime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
+                  />
+                </div>
+              )}
+              {scheduleMode === "weekly" && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">每周几执行</label>
+                    <select
+                      value={weeklyDay}
+                      onChange={(e) => setWeeklyDay(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
+                    >
+                      {WEEKDAY_OPTIONS.map((day) => (
+                        <option key={day.value} value={day.value}>
+                          {day.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">几点执行</label>
+                    <input
+                      type="time"
+                      value={weeklyTime}
+                      onChange={(e) => setWeeklyTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm"
+                    />
+                  </div>
+                </div>
               )}
               {nextRun && enabled && (
                 <p className="text-xs text-muted-foreground mt-1">
                   下次执行: {formatNextRun(nextRun)}
                 </p>
               )}
+              <p className="text-xs text-muted-foreground mt-1">
+                时区: 本地时区（{Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}）
+              </p>
             </div>
 
             {/* Concurrency and Delay in one row */}

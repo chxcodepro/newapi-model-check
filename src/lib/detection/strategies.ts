@@ -14,6 +14,11 @@ const DETECT_PROMPT = process.env.DETECT_PROMPT || "1+1=2? yes or no";
 export function detectCliEndpointType(modelName: string): EndpointType | null {
   const name = modelName.toLowerCase();
 
+  // Models containing "codex" must use Responses API only
+  if (name.includes("codex")) {
+    return EndpointType.CODEX;
+  }
+
   if (name.includes("claude")) {
     return EndpointType.CLAUDE;
   }
@@ -23,9 +28,9 @@ export function detectCliEndpointType(modelName: string): EndpointType | null {
   }
 
   // OpenAI Responses API (2025+):
-  // Only gpt-5.1 and gpt-5.2 series use the new Responses API (CODEX)
+  // gpt-5.1, gpt-5.2, and gpt-5.3 series use the new Responses API (CODEX)
   // gpt-4o, gpt-4, o1, o3, etc. still use Chat Completions API
-  if (/gpt-5\.[12]/.test(name)) {
+  if (/gpt-5\.[123]/.test(name)) {
     return EndpointType.CODEX;
   }
 
@@ -57,6 +62,13 @@ export function isImageModel(modelName: string): boolean {
  * Image models only test IMAGE endpoint, others test CHAT plus CLI endpoint if applicable
  */
 export function getEndpointsToTest(modelName: string): EndpointType[] {
+  const name = modelName.toLowerCase();
+
+  // Any model containing "codex" should only test Responses endpoint
+  if (name.includes("codex")) {
+    return [EndpointType.CODEX];
+  }
+
   // Image models only support IMAGE endpoint
   if (isImageModel(modelName)) {
     return [EndpointType.IMAGE];

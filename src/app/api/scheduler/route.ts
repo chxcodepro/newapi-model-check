@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/middleware/auth";
+import prisma from "@/lib/prisma";
 import {
   startAllCronsWithConfig,
   stopAllCrons,
@@ -11,11 +12,49 @@ import {
   startCleanupCron,
 } from "@/lib/scheduler";
 
+const DEFAULT_RUNTIME_CONFIG = {
+  channelConcurrency: parseInt(process.env.CHANNEL_CONCURRENCY || "5", 10),
+  maxGlobalConcurrency: parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10),
+  minDelayMs: parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10),
+  maxDelayMs: parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10),
+};
+
+async function getRuntimeConfig() {
+  try {
+    const config = await prisma.schedulerConfig.findUnique({
+      where: { id: "default" },
+      select: {
+        channelConcurrency: true,
+        maxGlobalConcurrency: true,
+        minDelayMs: true,
+        maxDelayMs: true,
+      },
+    });
+
+    if (!config) {
+      return DEFAULT_RUNTIME_CONFIG;
+    }
+
+    return {
+      channelConcurrency: config.channelConcurrency,
+      maxGlobalConcurrency: config.maxGlobalConcurrency,
+      minDelayMs: config.minDelayMs,
+      maxDelayMs: config.maxDelayMs,
+    };
+  } catch {
+    return DEFAULT_RUNTIME_CONFIG;
+  }
+}
+
 // GET /api/scheduler - Get scheduler status
 export async function GET() {
   try {
     const status = getCronStatus();
-    return NextResponse.json(status);
+    const config = await getRuntimeConfig();
+    return NextResponse.json({
+      ...status,
+      config,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to get scheduler status", code: "STATUS_ERROR" },

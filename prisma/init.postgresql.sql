@@ -29,10 +29,15 @@ CREATE TABLE IF NOT EXISTS "channels" (
   "api_key" TEXT NOT NULL,
   "proxy" VARCHAR(500),
   "enabled" BOOLEAN NOT NULL DEFAULT true,
+  "sort_order" INTEGER NOT NULL DEFAULT 0,
   "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY ("id")
 );
+
+-- 兼容历史库：补 channels.sort_order 字段
+ALTER TABLE "channels"
+  ADD COLUMN IF NOT EXISTS "sort_order" INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS "models" (
   "id" TEXT NOT NULL,

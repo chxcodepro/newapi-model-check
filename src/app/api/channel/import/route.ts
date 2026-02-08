@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Sync to WebDAV if configured
-    let webdavStatus = { synced: false, error: null as string | null };
+    const webdavStatus = { synced: false, error: null as string | null };
     if (isWebDAVConfigured() && channelsToSync.length > 0) {
       try {
         if (mode === "replace") {

@@ -6,6 +6,7 @@ import prisma from "@/lib/prisma";
 
 // Environment variable defaults
 const ENV_AUTO_DETECT_ENABLED = process.env.AUTO_DETECT_ENABLED !== "false";
+const ENV_AUTO_DETECT_ALL_CHANNELS = process.env.AUTO_DETECT_ALL_CHANNELS !== "false";
 const ENV_DETECTION_SCHEDULE = process.env.CRON_SCHEDULE || "0 0,8,12,16,20 * * *";
 const ENV_CLEANUP_SCHEDULE = process.env.CLEANUP_SCHEDULE || "0 2 * * *";
 const ENV_CRON_TIMEZONE = process.env.CRON_TIMEZONE || "Asia/Shanghai";
@@ -16,7 +17,7 @@ let currentConfig = {
   enabled: ENV_AUTO_DETECT_ENABLED,
   cronSchedule: ENV_DETECTION_SCHEDULE,
   timezone: ENV_CRON_TIMEZONE,
-  detectAllChannels: false,
+  detectAllChannels: ENV_AUTO_DETECT_ALL_CHANNELS,
   selectedChannelIds: null as string[] | null,
   selectedModelIds: null as Record<string, string[]> | null,
 };
@@ -55,7 +56,7 @@ export async function loadSchedulerConfig(): Promise<typeof currentConfig> {
           maxGlobalConcurrency: parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10),
           minDelayMs: parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10),
           maxDelayMs: parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10),
-          detectAllChannels: false,
+          detectAllChannels: ENV_AUTO_DETECT_ALL_CHANNELS,
         },
       });
     }

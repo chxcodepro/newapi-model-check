@@ -2,10 +2,23 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Copy, Check, ArrowLeft, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+interface CodeBlockProps {
+  code: string;
+  id: string;
+  copied: string | null;
+  onCopy: (text: string, id: string) => void;
+}
+
+interface EndpointProps {
+  method: string;
+  path: string;
+  desc: string;
+}
 
 // Collapsible section component
 function CollapsibleSection({
@@ -46,27 +59,14 @@ function CollapsibleSection({
   );
 }
 
-export default function ProxyDocsPage() {
-  const [baseUrl, setBaseUrl] = useState("");
-  const [copied, setCopied] = useState<string | null>(null);
-
-  useEffect(() => {
-    setBaseUrl(window.location.origin);
-  }, []);
-
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
-  };
-
-  const CodeBlock = ({ code, id }: { code: string; id: string }) => (
+function CodeBlock({ code, id, copied, onCopy }: CodeBlockProps) {
+  return (
     <div className="relative group">
       <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
         <code>{code}</code>
       </pre>
       <button
-        onClick={() => copyToClipboard(code, id)}
+        onClick={() => onCopy(code, id)}
         className="absolute top-2 right-2 p-2 rounded-md bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity"
         title="复制"
       >
@@ -78,14 +78,18 @@ export default function ProxyDocsPage() {
       </button>
     </div>
   );
+}
 
-  const Endpoint = ({ method, path, desc }: { method: string; path: string; desc: string }) => (
+function Endpoint({ method, path, desc }: EndpointProps) {
+  return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 py-2 border-b border-border last:border-0">
       <div className="flex items-center gap-2 shrink-0">
-        <span className={cn(
-          "px-2 py-0.5 rounded text-xs font-medium",
-          method === "GET" ? "bg-green-500/20 text-green-600" : "bg-blue-500/20 text-blue-600"
-        )}>
+        <span
+          className={cn(
+            "px-2 py-0.5 rounded text-xs font-medium",
+            method === "GET" ? "bg-green-500/20 text-green-600" : "bg-blue-500/20 text-blue-600"
+          )}
+        >
           {method}
         </span>
         <code className="text-sm">{path}</code>
@@ -93,6 +97,17 @@ export default function ProxyDocsPage() {
       <span className="text-sm text-muted-foreground">{desc}</span>
     </div>
   );
+}
+
+export default function ProxyDocsPage() {
+  const [baseUrl] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -115,7 +130,7 @@ export default function ProxyDocsPage() {
         {/* Base URL */}
         <section className="mb-6">
           <h2 className="text-lg font-semibold mb-3">Base URL</h2>
-          <CodeBlock code={baseUrl || "https://your-domain.com"} id="baseurl" />
+          <CodeBlock code={baseUrl || "https://your-domain.com"} id="baseurl" copied={copied} onCopy={copyToClipboard} />
         </section>
 
         {/* Endpoints by Category */}
@@ -133,6 +148,8 @@ export default function ProxyDocsPage() {
                   code={`curl ${baseUrl || "https://your-domain.com"}/v1/models \\
   -H "Authorization: Bearer YOUR_API_KEY"`}
                   id="example-models"
+                  copied={copied}
+                  onCopy={copyToClipboard}
                 />
               </div>
             </CollapsibleSection>
@@ -154,6 +171,8 @@ export default function ProxyDocsPage() {
     "stream": true
   }'`}
                     id="example-chat"
+                    copied={copied}
+                    onCopy={copyToClipboard}
                   />
                 </div>
                 <div>
@@ -171,6 +190,8 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello"}]
 )`}
                     id="config-openai"
+                    copied={copied}
+                    onCopy={copyToClipboard}
                   />
                 </div>
               </div>
@@ -193,6 +214,8 @@ response = client.chat.completions.create(
     "messages": [{"role": "user", "content": "Hello"}]
   }'`}
                     id="example-claude"
+                    copied={copied}
+                    onCopy={copyToClipboard}
                   />
                 </div>
                 <div>
@@ -211,6 +234,8 @@ message = client.messages.create(
     messages=[{"role": "user", "content": "Hello"}]
 )`}
                     id="config-anthropic"
+                    copied={copied}
+                    onCopy={copyToClipboard}
                   />
                 </div>
               </div>
@@ -230,6 +255,8 @@ message = client.messages.create(
     "contents": [{"parts": [{"text": "Hello"}]}]
   }'`}
                   id="example-gemini"
+                  copied={copied}
+                  onCopy={copyToClipboard}
                 />
               </div>
             </CollapsibleSection>
@@ -294,6 +321,8 @@ message = client.messages.create(
     proxy_send_timeout 600s;
 }`}
             id="nginx-config"
+            copied={copied}
+            onCopy={copyToClipboard}
           />
           <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
             <p className="text-sm">

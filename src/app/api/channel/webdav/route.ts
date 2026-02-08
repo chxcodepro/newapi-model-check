@@ -11,6 +11,7 @@ const ENV_WEBDAV_URL = process.env.WEBDAV_URL;
 const ENV_WEBDAV_USERNAME = process.env.WEBDAV_USERNAME;
 const ENV_WEBDAV_PASSWORD = process.env.WEBDAV_PASSWORD;
 const ENV_WEBDAV_FILENAME = process.env.WEBDAV_FILENAME;
+const ENV_AUTO_DETECT_ALL_CHANNELS = process.env.AUTO_DETECT_ALL_CHANNELS !== "false";
 
 interface WebDAVConfig {
   url: string;
@@ -187,7 +188,7 @@ export async function POST(request: NextRequest) {
         enabled: ch.enabled,
       }));
 
-      let finalChannels = localChannels;
+      const finalChannels = localChannels;
       let merged = 0;
       let replaced = 0;
 
@@ -324,7 +325,7 @@ export async function POST(request: NextRequest) {
       }
 
       let imported = 0;
-      let updated = 0;
+      const updated = 0;
       let skipped = 0;
       let duplicates = 0;
       const importedChannelIds: string[] = [];
@@ -488,7 +489,7 @@ export async function POST(request: NextRequest) {
               maxGlobalConcurrency: data.schedulerConfig.maxGlobalConcurrency as number ?? 30,
               minDelayMs: data.schedulerConfig.minDelayMs as number ?? 3000,
               maxDelayMs: data.schedulerConfig.maxDelayMs as number ?? 5000,
-              detectAllChannels: data.schedulerConfig.detectAllChannels as boolean ?? false,
+              detectAllChannels: data.schedulerConfig.detectAllChannels as boolean ?? ENV_AUTO_DETECT_ALL_CHANNELS,
               selectedChannelIds: data.schedulerConfig.selectedChannelIds as string[] ?? null,
               selectedModelIds: data.schedulerConfig.selectedModelIds as Record<string, string[]> ?? null,
             },
@@ -501,7 +502,7 @@ export async function POST(request: NextRequest) {
               maxGlobalConcurrency: data.schedulerConfig.maxGlobalConcurrency as number ?? 30,
               minDelayMs: data.schedulerConfig.minDelayMs as number ?? 3000,
               maxDelayMs: data.schedulerConfig.maxDelayMs as number ?? 5000,
-              detectAllChannels: data.schedulerConfig.detectAllChannels as boolean ?? false,
+              detectAllChannels: data.schedulerConfig.detectAllChannels as boolean ?? ENV_AUTO_DETECT_ALL_CHANNELS,
               selectedChannelIds: data.schedulerConfig.selectedChannelIds as string[] ?? null,
               selectedModelIds: data.schedulerConfig.selectedModelIds as Record<string, string[]> ?? null,
             },

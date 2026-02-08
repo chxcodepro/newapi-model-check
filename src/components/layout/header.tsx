@@ -22,6 +22,12 @@ interface SchedulerStatus {
     schedule: string;
     nextRun: string | null;
   };
+  config: {
+    channelConcurrency: number;
+    maxGlobalConcurrency: number;
+    minDelayMs: number;
+    maxDelayMs: number;
+  };
   cleanup: {
     running: boolean;
     schedule: string;
@@ -45,11 +51,6 @@ interface HeaderProps {
   onDetectionStart?: () => void;
   onDetectionStop?: () => void;
 }
-
-// Worker configuration (matching worker.ts)
-const WORKER_CONCURRENCY = 5;
-const MIN_DELAY_MS = 3000;
-const MAX_DELAY_MS = 5000;
 
 export function Header({
   onLoginClick,
@@ -309,7 +310,7 @@ export function Header({
           {/* Concurrency */}
           <div className="hidden sm:flex items-center gap-1 px-2 py-1.5" title="并发数">
             <Zap className="h-3.5 w-3.5 text-yellow-500" />
-            <span className="font-medium text-foreground text-xs">{WORKER_CONCURRENCY}</span>
+            <span className="font-medium text-foreground text-xs">{schedulerStatus?.config.maxGlobalConcurrency ?? "-"}</span>
           </div>
 
           {/* Divider */}
@@ -318,7 +319,7 @@ export function Header({
           {/* Interval */}
           <div className="hidden lg:flex items-center gap-1 px-2 py-1.5" title="检测间隔">
             <Timer className="h-3.5 w-3.5 text-green-500" />
-            <span className="font-medium text-foreground text-xs">{MIN_DELAY_MS/1000}-{MAX_DELAY_MS/1000}s</span>
+            <span className="font-medium text-foreground text-xs">{schedulerStatus ? `${schedulerStatus.config.minDelayMs / 1000}-${schedulerStatus.config.maxDelayMs / 1000}s` : "-"}</span>
           </div>
 
           {/* Settings icon for authenticated users */}

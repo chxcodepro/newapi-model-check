@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/middleware/auth";
 import prisma from "@/lib/prisma";
 import { reloadSchedulerConfig, getCronStatus } from "@/lib/scheduler";
+import { reloadWorkerConfig } from "@/lib/queue/worker";
 
 // Default configuration values (from environment variables)
 const DEFAULT_CONFIG = {
@@ -14,7 +15,7 @@ const DEFAULT_CONFIG = {
   maxGlobalConcurrency: parseInt(process.env.MAX_GLOBAL_CONCURRENCY || "30", 10),
   minDelayMs: parseInt(process.env.DETECTION_MIN_DELAY_MS || "3000", 10),
   maxDelayMs: parseInt(process.env.DETECTION_MAX_DELAY_MS || "5000", 10),
-  detectAllChannels: false,
+  detectAllChannels: process.env.AUTO_DETECT_ALL_CHANNELS !== "false",
 };
 
 // GET /api/scheduler/config - Get scheduler configuration with channel list
@@ -55,7 +56,10 @@ export async function GET(request: NextRequest) {
           orderBy: { modelName: "asc" },
         },
       },
-      orderBy: { name: "asc" },
+      orderBy: [
+        { sortOrder: "asc" },
+        { createdAt: "desc" },
+      ],
     });
 
     // Get cron status for next run time
@@ -166,6 +170,9 @@ export async function PUT(request: NextRequest) {
 
     // Reload cron job with new configuration
     await reloadSchedulerConfig();
+
+    // Reload worker runtime config for subsequent jobs
+    reloadWorkerConfig();
 
     // Get updated cron status
     const cronStatus = getCronStatus();

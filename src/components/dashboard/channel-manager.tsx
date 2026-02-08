@@ -30,6 +30,7 @@ interface Channel {
   apiKey: string;
   proxy: string | null;
   enabled: boolean;
+  sortOrder?: number;
   _count?: { models: number };
 }
 
@@ -68,8 +69,10 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
 
   // Sync state
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncingAll, setSyncingAll] = useState(false);
   // Per-channel sync status message (shown on the channel card)
   const [syncStatus, setSyncStatus] = useState<Record<string, { message: string; type: "success" | "error" }>>({});
+  const [draggingChannelId, setDraggingChannelId] = useState<string | null>(null);
 
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -339,21 +342,7 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "同步失败");
 
-      // Show success message on the channel card
-      const message = `同步成功: +${data.added} -${data.removed} = ${data.total}`;
-      setSyncStatus((prev) => ({ ...prev, [id]: { message, type: "success" } }));
-
-      // Auto clear after 5 seconds
-      setTimeout(() => {
-        setSyncStatus((prev) => {
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-      }, 5000);
-
-      fetchChannels();
-      onUpdate();
+      toast(`获取到 ${data.total} 个模型`, "success");
     } catch (err) {
       // Show error message on the channel card instead of global error
       const message = err instanceof Error ? err.message : "同步失败";
@@ -369,6 +358,104 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
       }, 8000);
     } finally {
       setSyncingId(null);
+    }
+  };
+
+  const handleSyncAll = async () => {
+    if (syncingAll || channels.length === 0) return;
+
+    setSyncingAll(true);
+    setError(null);
+
+    try {
+      const concurrency = 3;
+      let totalModels = 0;
+      let failedCount = 0;
+
+      for (let index = 0; index < channels.length; index += concurrency) {
+        const batch = channels.slice(index, index + concurrency);
+        const results = await Promise.allSettled(
+          batch.map(async (channel) => {
+            const response = await fetch(`/api/channel/${channel.id}/sync`, {
+              method: "POST",
+              headers,
+            });
+            const data = await response.json();
+            if (!response.ok) {
+              throw new Error(data.error || "同步失败");
+            }
+            return Number(data.total) || 0;
+          })
+        );
+
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            totalModels += result.value;
+          } else {
+            failedCount += 1;
+          }
+        }
+      }
+
+      if (failedCount > 0) {
+        toast(`全量同步完成，获取到 ${totalModels} 个模型，${failedCount} 个渠道失败`, "error");
+      } else {
+        toast(`全量同步完成，获取到 ${totalModels} 个模型`, "success");
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "全量同步失败", "error");
+    } finally {
+      setSyncingAll(false);
+      onUpdate();
+    }
+  };
+
+  const persistChannelOrder = async (orderedChannels: Channel[]) => {
+    const orders = orderedChannels.map((channel, index) => ({
+      id: channel.id,
+      sortOrder: index,
+    }));
+
+    const response = await fetch("/api/channel", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ orders }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "排序保存失败");
+    }
+  };
+
+  const handleDropChannel = async (targetChannelId: string) => {
+    if (!draggingChannelId || draggingChannelId === targetChannelId) {
+      setDraggingChannelId(null);
+      return;
+    }
+
+    const previousChannels = channels;
+    const fromIndex = previousChannels.findIndex((channel) => channel.id === draggingChannelId);
+    const toIndex = previousChannels.findIndex((channel) => channel.id === targetChannelId);
+
+    if (fromIndex < 0 || toIndex < 0) {
+      setDraggingChannelId(null);
+      return;
+    }
+
+    const nextChannels = [...previousChannels];
+    const [moved] = nextChannels.splice(fromIndex, 1);
+    nextChannels.splice(toIndex, 0, moved);
+
+    setChannels(nextChannels);
+    setDraggingChannelId(null);
+
+    try {
+      await persistChannelOrder(nextChannels);
+      onUpdate();
+    } catch (err) {
+      setChannels(previousChannels);
+      toast(err instanceof Error ? err.message : "排序失败", "error");
     }
   };
 
@@ -573,6 +660,20 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           </button>
 
+          {/* Sync all models button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSyncAll();
+            }}
+            disabled={syncingAll || channels.length === 0}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-input bg-background hover:bg-accent transition-colors disabled:opacity-50"
+            title="全量同步模型"
+            aria-label="全量同步模型"
+          >
+            {syncingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          </button>
+
           {/* 云通知按钮 */}
           <button
             onClick={(e) => {
@@ -615,7 +716,15 @@ export function ChannelManager({ onUpdate, className }: ChannelManagerProps) {
                   .map((channel) => (
                 <div
                   key={channel.id}
-                  className="flex flex-col p-3 rounded-md border border-border bg-background"
+                  draggable
+                  onDragStart={() => setDraggingChannelId(channel.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => handleDropChannel(channel.id)}
+                  onDragEnd={() => setDraggingChannelId(null)}
+                  className={cn(
+                    "flex flex-col p-3 rounded-md border border-border bg-background",
+                    draggingChannelId === channel.id && "opacity-60"
+                  )}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1">

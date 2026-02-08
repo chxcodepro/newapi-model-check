@@ -34,6 +34,7 @@ export function useSSE(options: UseSSEOptions = {}) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef(0);
   const reconnectDelayRef = useRef(INITIAL_RECONNECT_DELAY);
+  const connectRef = useRef<(() => void) | null>(null);
   // Store callback in ref to avoid triggering reconnection
   const onProgressRef = useRef(options.onProgress);
 
@@ -100,13 +101,17 @@ export function useSSE(options: UseSSEOptions = {}) {
       const delay = Math.min(reconnectDelayRef.current + jitter, MAX_RECONNECT_DELAY);
 
       reconnectTimeoutRef.current = setTimeout(() => {
-        connect();
+        connectRef.current?.();
       }, delay);
 
       // Increase delay for next retry (exponential backoff)
       reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, MAX_RECONNECT_DELAY);
     };
   }, [maxRetries]); // Only depends on maxRetries, not onProgress
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

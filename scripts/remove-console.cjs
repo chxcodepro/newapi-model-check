@@ -1,4 +1,5 @@
 // Batch remove console.log/error/warn/info/debug from src/ files
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require('fs');
 const path = require('path');
 

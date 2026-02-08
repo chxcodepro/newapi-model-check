@@ -2,7 +2,7 @@
 
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, ReactNode, useCallback } from "react";
 
 interface AuthContextType {
   token: string | null;
@@ -14,15 +14,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Load token from localStorage
-    const stored = localStorage.getItem("auth_token");
-    if (stored) {
-      setToken(stored);
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
     }
-  }, []);
+    return localStorage.getItem("auth_token");
+  });
 
   const login = useCallback(async (password: string): Promise<boolean> => {
     try {
