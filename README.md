@@ -55,18 +55,29 @@ docker compose up -d
 docker logs -f model-check
 ```
 
-### 本地开发
+### 本地开发（Windows + Docker）
 
-```bash
+```powershell
 # 安装依赖
 npm install
 
 # 配置环境变量
-cp .env.example .env
-# 编辑 .env，配置 DATABASE_URL 和 REDIS_URL
+Copy-Item .env.example .env
 
-# 同步数据库（幂等脚本，可重复执行）
-psql "$DATABASE_URL" < prisma/init.postgresql.sql
+# 数据库环境DATABASE_URL:
+# postgresql://modelcheck:modelcheck123456@localhost:5432/model_check
+
+# 设置本地环境变量
+$env:COMPOSE_PROFILES="local"
+
+# 启动本地 PostgreSQL + Redis
+docker compose up -d postgres redis
+
+# 若 5432 被占用，先查实际映射端口，再更新 DATABASE_URL
+docker compose port postgres 5432
+
+# 同步数据库结构
+npm run db:push
 
 # 启动开发服务器
 npm run dev
