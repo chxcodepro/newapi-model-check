@@ -82,7 +82,20 @@ export async function addDetectionJobsBulk(jobs: DetectionJobData[]): Promise<st
 /**
  * Get queue statistics
  */
-export async function getQueueStats() {
+export interface QueueStats {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+  total: number;
+}
+
+export function isQueueRunning(stats: Pick<QueueStats, "active" | "waiting" | "delayed">): boolean {
+  return stats.active > 0 || stats.waiting > 0 || stats.delayed > 0;
+}
+
+export async function getQueueStats(): Promise<QueueStats> {
   const queue = getDetectionQueue();
   const [waiting, active, completed, failed, delayed] = await Promise.all([
     queue.getWaitingCount(),

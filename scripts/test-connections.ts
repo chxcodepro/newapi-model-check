@@ -9,10 +9,8 @@ async function testConnections() {
     // Test Database Connection
     console.log("📊 Testing Database Connection...");
     await prisma.$connect();
-    console.log("✅ Database connected successfully");
-
-    // Test simple query
     const channelCount = await prisma.channel.count();
+    console.log("✅ Database connected successfully");
     console.log(`   Found ${channelCount} channels in database\n`);
 
     // Test Redis Connection
@@ -28,7 +26,7 @@ async function testConnections() {
     console.log("🎉 All connections successful!");
   } catch (error) {
     console.error("❌ Connection test failed:", error);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     await prisma.$disconnect();
     await redis.quit();

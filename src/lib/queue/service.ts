@@ -2,7 +2,13 @@
 
 import prisma from "@/lib/prisma";
 import { getEndpointsToTest, fetchModels } from "@/lib/detection";
-import { addDetectionJobsBulk, getQueueStats, getTestingModelIds, clearStoppedFlag } from "./queue";
+import {
+  addDetectionJobsBulk,
+  getQueueStats,
+  getTestingModelIds,
+  clearStoppedFlag,
+  isQueueRunning,
+} from "./queue";
 import type { DetectionJobData } from "@/lib/detection/types";
 
 /**
@@ -74,6 +80,18 @@ async function buildJobsForModels(
   return jobs;
 }
 
+function getDetectionCounts(jobs: DetectionJobData[]): { modelCount: number; jobCount: number } {
+  const modelIds = new Set<string>();
+  for (const job of jobs) {
+    modelIds.add(job.modelId);
+  }
+
+  return {
+    modelCount: modelIds.size,
+    jobCount: jobs.length,
+  };
+}
+
 /**
  * Trigger detection for all enabled channels
  * Optionally sync models from remote API before detection
@@ -81,6 +99,7 @@ async function buildJobsForModels(
 export async function triggerFullDetection(syncModelsFirst: boolean = false): Promise<{
   channelCount: number;
   modelCount: number;
+  jobCount: number;
   jobIds: string[];
   syncResults?: { channelId: string; added: number; total: number }[];
 }> {
@@ -148,15 +167,17 @@ export async function triggerFullDetection(syncModelsFirst: boolean = false): Pr
   }
 
   if (jobs.length === 0) {
-    return { channelCount: 0, modelCount: 0, jobIds: [], syncResults };
+    return { channelCount: 0, modelCount: 0, jobCount: 0, jobIds: [], syncResults };
   }
 
   // Add all jobs to queue
   const jobIds = await addDetectionJobsBulk(jobs);
+  const { modelCount, jobCount } = getDetectionCounts(jobs);
 
   return {
     channelCount: channelsWithModels.length,
-    modelCount: jobs.length,
+    modelCount,
+    jobCount,
     jobIds,
     syncResults,
   };
@@ -172,6 +193,7 @@ export async function triggerChannelDetection(
   modelIds?: string[]
 ): Promise<{
   modelCount: number;
+  jobCount: number;
   jobIds: string[];
 }> {
 
@@ -222,12 +244,13 @@ export async function triggerChannelDetection(
   const jobs = await buildJobsForModels(channel, modelsToTest);
 
   if (jobs.length === 0) {
-    return { modelCount: 0, jobIds: [] };
+    return { modelCount: 0, jobCount: 0, jobIds: [] };
   }
 
   const jobIds = await addDetectionJobsBulk(jobs);
+  const { modelCount, jobCount } = getDetectionCounts(jobs);
 
-  return { modelCount: jobs.length, jobIds };
+  return { modelCount, jobCount, jobIds };
 }
 
 /**
@@ -607,7 +630,7 @@ export async function getDetectionProgress() {
 
   return {
     ...stats,
-    isRunning: stats.active > 0 || stats.waiting > 0,
+    isRunning: isQueueRunning(stats),
     progress:
       stats.total > 0 || stats.completed > 0 || stats.failed > 0
         ? Math.round(((stats.completed + stats.failed) / (stats.total + stats.completed + stats.failed)) * 100)
@@ -627,6 +650,7 @@ export async function triggerSelectiveDetection(
 ): Promise<{
   channelCount: number;
   modelCount: number;
+  jobCount: number;
   jobIds: string[];
   syncResults?: { channelId: string; added: number; total: number }[];
 }> {
@@ -648,7 +672,7 @@ export async function triggerSelectiveDetection(
   });
 
   if (channels.length === 0) {
-    return { channelCount: 0, modelCount: 0, jobIds: [] };
+    return { channelCount: 0, modelCount: 0, jobCount: 0, jobIds: [] };
   }
 
   // Sync models from remote API for selected channels
@@ -700,14 +724,16 @@ export async function triggerSelectiveDetection(
   }
 
   if (jobs.length === 0) {
-    return { channelCount: 0, modelCount: 0, jobIds: [], syncResults };
+    return { channelCount: 0, modelCount: 0, jobCount: 0, jobIds: [], syncResults };
   }
 
   const jobIds = await addDetectionJobsBulk(jobs);
+  const { modelCount, jobCount } = getDetectionCounts(jobs);
 
   return {
     channelCount: channelsWithModels.length,
-    modelCount: jobs.length,
+    modelCount,
+    jobCount,
     jobIds,
     syncResults,
   };

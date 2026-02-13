@@ -8,7 +8,7 @@ import {
   triggerModelDetection,
   getDetectionProgress,
 } from "@/lib/queue/service";
-import { getQueueStats, getTestingChannelIds, pauseAndDrainQueue } from "@/lib/queue/queue";
+import { getQueueStats, getTestingChannelIds, isQueueRunning, pauseAndDrainQueue } from "@/lib/queue/queue";
 
 // POST /api/detect - Trigger detection
 export async function POST(request: NextRequest) {
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       } else {
         // Full detection: block if any detection is running
         const stats = await getQueueStats();
-        if (stats.active > 0 || stats.waiting > 0) {
+        if (isQueueRunning(stats)) {
           return NextResponse.json(
             {
               error: "检测任务正在进行中",
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       result = await triggerChannelDetection(channelId, modelIds);
       return NextResponse.json({
         success: true,
-        message: `渠道检测已启动，共 ${result.modelCount} 个任务`,
+        message: `渠道检测已启动，共 ${result.modelCount} 个模型，${result.jobCount} 个任务`,
         ...result,
       });
     } else {
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       result = await triggerFullDetection();
       return NextResponse.json({
         success: true,
-        message: `全量检测已启动，${result.channelCount} 个渠道，${result.modelCount} 个模型`,
+        message: `全量检测已启动，${result.channelCount} 个渠道，${result.modelCount} 个模型，${result.jobCount} 个任务`,
         ...result,
       });
     }

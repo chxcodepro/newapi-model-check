@@ -2,7 +2,7 @@
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getQueueStats } from "@/lib/queue/queue";
+import { getQueueStats, isQueueRunning } from "@/lib/queue/queue";
 
 export async function GET() {
   try {
@@ -43,9 +43,10 @@ export async function GET() {
       },
       queue: queueStats
         ? {
-            isRunning: queueStats.active > 0 || queueStats.waiting > 0,
-            pending: queueStats.waiting,
+            isRunning: isQueueRunning(queueStats),
+            pending: queueStats.waiting + queueStats.delayed,
             active: queueStats.active,
+            delayed: queueStats.delayed,
           }
         : null,
     });
