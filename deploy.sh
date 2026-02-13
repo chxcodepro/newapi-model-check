@@ -142,28 +142,6 @@ show_help() {
     exit 0
 }
 
-# 同步数据库结构（优先使用 Prisma Schema）
-sync_schema_with_prisma() {
-    local compose_cmd=$1
-    local max_attempts=5
-    local attempt=1
-
-    while [ $attempt -le $max_attempts ]; do
-        if $compose_cmd exec -T app node node_modules/prisma/build/index.js db push --schema prisma/schema.prisma; then
-            success "Prisma Schema 同步完成"
-            return 0
-        fi
-
-        if [ $attempt -lt $max_attempts ]; then
-            warn "Prisma db push 失败（$attempt/$max_attempts），2 秒后重试..."
-            sleep 2
-        fi
-        attempt=$((attempt + 1))
-    done
-
-    return 1
-}
-
 # 更新部署
 do_update() {
     info "更新部署..."
@@ -191,19 +169,14 @@ do_update() {
     $compose_cmd up -d --build
 
     info "同步数据库表结构..."
-    if sync_schema_with_prisma "$compose_cmd"; then
-        success "数据库同步完成"
-    else
-        warn "Prisma db push 失败，尝试使用 init.postgresql.sql 兜底..."
-        if docker ps --format '{{.Names}}' | grep -q "model-check-postgres"; then
-            if cat prisma/init.postgresql.sql | $compose_cmd exec -T postgres psql -U modelcheck -d model_check; then
-                success "SQL 兜底同步完成"
-            else
-                warn "SQL 兜底同步失败，请检查数据库连接与权限"
-            fi
+    if docker ps --format '{{.Names}}' | grep -q "model-check-postgres"; then
+        if cat prisma/init.postgresql.sql | $compose_cmd exec -T postgres psql -U modelcheck -d model_check; then
+            success "数据库同步完成（SQL 幂等脚本）"
         else
-            warn "未检测到本地 PostgreSQL 容器，无法使用 SQL 兜底，请检查 DATABASE_URL 与网络后重试"
+            warn "SQL 同步失败，请检查数据库连接与权限"
         fi
+    else
+        warn "未检测到本地 PostgreSQL 容器，无法自动执行 SQL 同步，请检查 DATABASE_URL 与网络后重试"
     fi
 
     success "更新完成！"
@@ -656,20 +629,15 @@ init_database() {
     fi
 
     info "同步数据库结构..."
-    if sync_schema_with_prisma "$compose_cmd"; then
-        success "数据库初始化完成"
-    else
-        warn "Prisma db push 失败，尝试使用 init.postgresql.sql 兜底..."
-        if [ "$has_local_postgres" = "true" ]; then
-            if cat prisma/init.postgresql.sql | $compose_cmd exec -T postgres psql -U modelcheck -d model_check; then
-                success "SQL 兜底同步完成"
-            else
-                warn "SQL 兜底同步失败，请检查数据库连接与权限"
-            fi
+    if [ "$has_local_postgres" = "true" ]; then
+        if cat prisma/init.postgresql.sql | $compose_cmd exec -T postgres psql -U modelcheck -d model_check; then
+            success "数据库初始化完成（SQL 幂等脚本）"
         else
-            warn "未检测到本地 PostgreSQL 容器，且 Prisma db push 失败"
-            info "请检查 .env 中 DATABASE_URL/DOCKER_DATABASE_URL 并重试"
+            warn "SQL 同步失败，请检查数据库连接与权限"
         fi
+    else
+        warn "未检测到本地 PostgreSQL 容器，跳过自动 SQL 同步"
+        info "请检查 .env 中 DATABASE_URL/DOCKER_DATABASE_URL，手动执行 prisma/init.postgresql.sql"
     fi
 }
 

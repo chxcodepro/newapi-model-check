@@ -474,7 +474,12 @@ export function streamResponse(upstream: Response): Response {
           controller.enqueue(value);
         }
       } catch (error) {
-        controller.error(error);
+        // Upstream closed mid-stream — close gracefully so partial data still reaches the client
+        try {
+          controller.close();
+        } catch {
+          // controller already closed or errored, nothing to do
+        }
       }
     },
     cancel() {

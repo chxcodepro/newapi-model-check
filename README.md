@@ -65,8 +65,8 @@ npm install
 cp .env.example .env
 # 编辑 .env，配置 DATABASE_URL 和 REDIS_URL
 
-# 同步数据库
-npx prisma db push
+# 同步数据库（幂等脚本，可重复执行）
+psql "$DATABASE_URL" < prisma/init.postgresql.sql
 
 # 启动开发服务器
 npm run dev
@@ -166,7 +166,7 @@ curl http://localhost:3000/v1/messages \
 bash deploy.sh --update
 ```
 
-脚本会自动执行：拉取最新代码 → 拉取最新镜像 → 重启服务 → 同步数据库结构（优先 Prisma，失败时使用幂等 SQL 兜底）。
+脚本会自动执行：拉取最新代码 → 拉取最新镜像 → 重启服务 → 使用幂等 SQL 同步数据库结构。
 
 <details>
 <summary>手动更新 / 迁移失败排查</summary>
@@ -175,10 +175,10 @@ bash deploy.sh --update
 # 手动更新完整流程
 git pull
 docker compose pull app && docker compose up -d
-docker compose exec -T app node node_modules/prisma/build/index.js db push --schema prisma/schema.prisma
+docker compose exec -T postgres psql -U modelcheck -d model_check < prisma/init.postgresql.sql
 ```
 
-如果 Prisma 迁移失败，可直接执行幂等 SQL 脚本（重复执行安全，不会破坏数据）：
+如需手动同步数据库结构，可执行幂等 SQL 脚本（重复执行安全，不会破坏数据）：
 
 ```bash
 # Docker 本地数据库
