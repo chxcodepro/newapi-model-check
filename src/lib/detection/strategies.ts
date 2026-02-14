@@ -144,7 +144,7 @@ function buildClaudeEndpoint(
     requestBody: {
       model: modelName,
       max_tokens: 50,
-      stream: false,
+      stream: true,
       messages: [
         {
           role: "user",
@@ -206,7 +206,7 @@ function buildCodexEndpoint(
     },
     requestBody: {
       model: modelName,
-      stream: false,
+      stream: true,
       // Responses API input format: array of message objects
       input: [
         {
@@ -241,7 +241,7 @@ function buildChatEndpoint(
     requestBody: {
       model: modelName,
       max_tokens: 50,
-      stream: false,
+      stream: true,
       messages: [
         {
           role: "user",

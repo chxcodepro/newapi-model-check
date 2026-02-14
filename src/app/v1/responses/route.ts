@@ -39,10 +39,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Use actual model name (without channel prefix) for upstream request
-    const upstreamBody = { ...body, model: channel.actualModelName };
+    // Default to stream=true (required by Codex etc.), allow explicit stream=false for compatibility
+    const isStream = body.stream !== false;
+    const upstreamBody = { ...body, model: channel.actualModelName, stream: isStream };
 
-    // Responses API supports streaming via 'stream' boolean
-    const isStream = body.stream === true;
     const baseUrl = normalizeBaseUrl(channel.baseUrl);
     const url = `${baseUrl}/v1/responses`;
     const headers = buildUpstreamHeaders(channel.apiKey, "openai");

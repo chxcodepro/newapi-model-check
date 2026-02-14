@@ -162,11 +162,14 @@ do_update() {
 
     # 拉取最新镜像
     info "拉取最新镜像..."
-    $compose_cmd pull app 2>/dev/null || warn "无法拉取镜像，将使用本地构建"
-
-    # 重启服务
-    info "重启服务..."
-    $compose_cmd up -d --build
+    if $compose_cmd pull app 2>/dev/null; then
+        info "重启服务..."
+        $compose_cmd up -d
+    else
+        warn "无法拉取镜像，自动切换到本地构建..."
+        info "重启服务..."
+        $compose_cmd up -d --build
+    fi
 
     info "同步数据库表结构..."
     if docker ps --format '{{.Names}}' | grep -q "model-check-postgres"; then

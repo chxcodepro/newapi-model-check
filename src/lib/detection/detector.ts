@@ -85,6 +85,74 @@ function stripThinkingBlocks(text: string): string {
 }
 
 /**
+ * Extract text content from SSE stream based on endpoint type
+ * Supports: OpenAI CHAT delta, Claude content_block_delta, Codex output_text.delta
+ */
+function extractStreamContent(sseText: string, endpointType: EndpointType): string | undefined {
+  let content = "";
+  for (const line of sseText.split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    const json = line.slice(6).trim();
+    if (json === "[DONE]") break;
+    try {
+      const event = JSON.parse(json);
+
+      switch (endpointType) {
+        case "CHAT": {
+          // OpenAI: {"choices":[{"delta":{"content":"token"}}]}
+          const delta = event.choices?.[0]?.delta;
+          if (typeof delta?.content === "string") {
+            content += delta.content;
+          }
+          break;
+        }
+        case "CLAUDE": {
+          // Anthropic: {"type":"content_block_delta","delta":{"type":"text_delta","text":"token"}}
+          if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
+            content += event.delta.text;
+          }
+          break;
+        }
+        case "CODEX": {
+          // Responses API: {"type":"response.output_text.delta","delta":"token"}
+          if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
+            content += event.delta;
+          }
+          if (event.type === "response.output_text.done" && typeof event.text === "string") {
+            content = event.text;
+          }
+          break;
+        }
+      }
+    } catch {
+      // skip unparseable lines
+    }
+  }
+  if (content.length > 0) {
+    return stripThinkingBlocks(content).slice(0, 500);
+  }
+  return undefined;
+}
+
+/**
+ * Parse the last meaningful JSON event from SSE stream for error checking
+ */
+function parseLastSSEEvent(sseText: string): unknown {
+  const lines = sseText.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].startsWith("data: ")) continue;
+    const json = lines[i].slice(6).trim();
+    if (json === "[DONE]") continue;
+    try {
+      return JSON.parse(json);
+    } catch {
+      // skip
+    }
+  }
+  return undefined;
+}
+
+/**
  * Extract response content from API response based on endpoint type
  */
 function extractResponseContent(
@@ -304,10 +372,19 @@ export async function executeDetection(job: DetectionJobData): Promise<Detection
       let responseContent: string | undefined;
       let responseBody: unknown;
       try {
-        responseBody = await response.json();
-        responseContent = extractResponseContent(responseBody, job.endpointType);
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("text/event-stream")) {
+          // SSE stream response (CHAT / CLAUDE / CODEX with stream: true)
+          const sseText = await response.text();
+          responseContent = extractStreamContent(sseText, job.endpointType);
+          responseBody = parseLastSSEEvent(sseText);
+        } else {
+          // JSON response (non-streaming fallback, Gemini, Image, etc.)
+          responseBody = await response.json();
+          responseContent = extractResponseContent(responseBody, job.endpointType);
+        }
       } catch {
-        // Ignore JSON parsing errors
+        // Ignore parsing errors
       }
 
       // Check if response body contains error indicators (some APIs return 200 with error in body)
