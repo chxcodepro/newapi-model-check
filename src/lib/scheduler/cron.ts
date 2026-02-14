@@ -193,6 +193,14 @@ function stopDetectionSchedulers(): void {
 
 async function runDetectionOnce(): Promise<void> {
   try {
+    // Guard: re-check enabled from DB before every run
+    // (module-level state may be stale due to Next.js chunk isolation)
+    const freshConfig = await loadSchedulerConfig();
+    if (!freshConfig.enabled) {
+      stopDetectionSchedulers();
+      return;
+    }
+
     let result;
 
     if (currentConfig.detectAllChannels) {
