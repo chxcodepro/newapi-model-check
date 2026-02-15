@@ -3,12 +3,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractToken, verifyToken } from "@/lib/auth";
 
-export interface AuthenticatedRequest extends NextRequest {
-  auth?: {
-    role: "admin";
-  };
-}
-
 /**
  * Middleware to verify admin authentication
  * Returns null if authenticated, or an error response if not

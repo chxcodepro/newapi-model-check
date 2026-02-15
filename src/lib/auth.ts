@@ -25,7 +25,7 @@ function getJwtSecret(): string {
 
 const JWT_EXPIRES_IN = "7d";
 
-export interface JWTPayload {
+interface JWTPayload {
   role: "admin";
   iat: number;
   exp: number;
@@ -91,9 +91,3 @@ export function extractToken(authHeader: string | null): string | null {
   return authHeader;
 }
 
-/**
- * Hash password with bcrypt (utility for setup)
- */
-export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 10);
-}

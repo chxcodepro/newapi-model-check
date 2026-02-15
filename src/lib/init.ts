@@ -28,9 +28,3 @@ export async function initializeServices(): Promise<void> {
   const cronStatus = getCronStatus();
 }
 
-/**
- * Check if services are initialized
- */
-export function isInitialized(): boolean {
-  return initialized;
-}

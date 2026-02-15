@@ -1,13 +1,12 @@
 // BullMQ Queue Configuration for Detection Jobs
 
-import { Queue, QueueEvents } from "bullmq";
+import { Queue } from "bullmq";
 import redis from "@/lib/redis";
 import type { DetectionJobData } from "@/lib/detection/types";
 import { DETECTION_QUEUE_NAME, DETECTION_STOPPED_KEY, DETECTION_STOPPED_TTL } from "./constants";
 
 // Queue instance (singleton)
 let detectionQueue: Queue<DetectionJobData> | null = null;
-let queueEvents: QueueEvents | null = null;
 
 /**
  * Get or create the detection queue instance
@@ -34,18 +33,6 @@ export function getDetectionQueue(): Queue<DetectionJobData> {
     });
   }
   return detectionQueue;
-}
-
-/**
- * Get queue events for progress monitoring
- */
-export function getQueueEvents(): QueueEvents {
-  if (!queueEvents) {
-    queueEvents = new QueueEvents(DETECTION_QUEUE_NAME, {
-      connection: redis.duplicate(),
-    });
-  }
-  return queueEvents;
 }
 
 /**
@@ -230,20 +217,6 @@ export async function pauseAndDrainQueue(): Promise<{ cleared: number }> {
   }
 
   return { cleared };
-}
-
-/**
- * Close queue connections
- */
-export async function closeQueue(): Promise<void> {
-  if (detectionQueue) {
-    await detectionQueue.close();
-    detectionQueue = null;
-  }
-  if (queueEvents) {
-    await queueEvents.close();
-    queueEvents = null;
-  }
 }
 
 /**

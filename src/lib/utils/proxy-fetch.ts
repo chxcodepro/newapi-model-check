@@ -261,15 +261,3 @@ export async function proxyFetch(
   return fetch(url.toString(), options as globalThis.RequestInit);
 }
 
-/**
- * Clear proxy agent cache (useful for cleanup or testing)
- */
-export function clearProxyAgentCache(): void {
-  for (const agent of httpProxyAgentCache.values()) {
-    agent.close();
-  }
-  httpProxyAgentCache.clear();
-
-  // SOCKS agents don't have a close method, just clear the cache
-  socksProxyAgentCache.clear();
-}

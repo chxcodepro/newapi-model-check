@@ -461,13 +461,6 @@ export function getCronStatus() {
 }
 
 /**
- * Get current scheduler config
- */
-export function getCurrentConfig() {
-  return { ...currentConfig };
-}
-
-/**
  * Start all cron jobs with database configuration
  */
 export async function startAllCronsWithConfig(): Promise<void> {
