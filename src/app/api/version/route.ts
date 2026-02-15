@@ -10,7 +10,7 @@ const GITHUB_RAW_URL =
 
 // Cache remote version check result (1 hour)
 let cachedRemoteVersion: { version: string; checkedAt: number } | null = null;
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Simple semver comparison: returns true if remote > local
