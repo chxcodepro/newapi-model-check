@@ -94,9 +94,9 @@ function getDetectionCounts(jobs: DetectionJobData[]): { modelCount: number; job
 
 /**
  * Trigger detection for all enabled channels
- * Optionally sync models from remote API before detection
+ * Detect models already stored in database
  */
-export async function triggerFullDetection(syncModelsFirst: boolean = false): Promise<{
+export async function triggerFullDetection(): Promise<{
   channelCount: number;
   modelCount: number;
   jobCount: number;
@@ -127,24 +127,7 @@ export async function triggerFullDetection(syncModelsFirst: boolean = false): Pr
     });
   }
 
-  // Optionally sync models from remote API first
-  let syncResults: { channelId: string; added: number; total: number }[] | undefined;
-  if (syncModelsFirst) {
-    syncResults = [];
-    for (const channel of channels) {
-      try {
-        const result = await syncChannelModels(channel.id);
-        syncResults.push({
-          channelId: channel.id,
-          added: result.added,
-          total: result.total,
-        });
-      } catch (error) {
-      }
-    }
-  }
-
-  // Re-fetch channels with updated models
+  // Read models from database directly (no remote model sync in detection flow)
   const channelsWithModels = await prisma.channel.findMany({
     where: { enabled: true },
     include: {
@@ -167,7 +150,7 @@ export async function triggerFullDetection(syncModelsFirst: boolean = false): Pr
   }
 
   if (jobs.length === 0) {
-    return { channelCount: 0, modelCount: 0, jobCount: 0, jobIds: [], syncResults };
+    return { channelCount: 0, modelCount: 0, jobCount: 0, jobIds: [] };
   }
 
   // Add all jobs to queue
@@ -179,7 +162,6 @@ export async function triggerFullDetection(syncModelsFirst: boolean = false): Pr
     modelCount,
     jobCount,
     jobIds,
-    syncResults,
   };
 }
 
@@ -660,7 +642,7 @@ export async function triggerSelectiveDetection(
 
   // If no specific channels selected, fall back to full detection
   if (!channelIds || channelIds.length === 0) {
-    return triggerFullDetection(true);
+    return triggerFullDetection();
   }
 
   // Fetch selected channels
@@ -675,21 +657,7 @@ export async function triggerSelectiveDetection(
     return { channelCount: 0, modelCount: 0, jobCount: 0, jobIds: [] };
   }
 
-  // Sync models from remote API for selected channels
-  const syncResults: { channelId: string; added: number; total: number }[] = [];
-  for (const channel of channels) {
-    try {
-      const result = await syncChannelModels(channel.id);
-      syncResults.push({
-        channelId: channel.id,
-        added: result.added,
-        total: result.total,
-      });
-    } catch (error) {
-    }
-  }
-
-  // Re-fetch channels with models
+  // Read models from database directly (no remote model sync in detection flow)
   const channelsWithModels = await prisma.channel.findMany({
     where: {
       id: { in: channelIds },
@@ -724,7 +692,7 @@ export async function triggerSelectiveDetection(
   }
 
   if (jobs.length === 0) {
-    return { channelCount: 0, modelCount: 0, jobCount: 0, jobIds: [], syncResults };
+    return { channelCount: 0, modelCount: 0, jobCount: 0, jobIds: [] };
   }
 
   // Reset models status to "untested" state before detection
@@ -747,6 +715,5 @@ export async function triggerSelectiveDetection(
     modelCount,
     jobCount,
     jobIds,
-    syncResults,
   };
 }

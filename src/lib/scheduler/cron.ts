@@ -205,7 +205,7 @@ async function runDetectionOnce(): Promise<void> {
 
     if (currentConfig.detectAllChannels) {
       // Full detection - all channels
-      result = await triggerFullDetection(true);
+      result = await triggerFullDetection();
     } else {
       // Selective detection - only specified channels/models
       result = await triggerSelectiveDetection(
